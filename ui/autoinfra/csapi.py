@@ -267,6 +267,15 @@ def bootstrap_zone(cs, spec, log=print):
     if spec.get("secondary_nfs") and not cs.find("listImageStores", "imagestore", zoneid=zid, name="secondary-nfs"):
         cs.run("addImageStore", zoneid=zid, name="secondary-nfs", provider="NFS", url=f"nfs://{spec['secondary_nfs']}")
         log("[zone] secondary storage added")
+    for x in spec.get("extra_primary") or []:          # more primary pools for the first cluster
+        if first_cluster and not cs.find("listStoragePools", "storagepool", zoneid=zid, name=x["name"]):
+            cs.run("createStoragePool", zoneid=zid, podid=p["id"], clusterid=first_cluster["id"], name=x["name"], scope="cluster",
+                   hypervisor="KVM", url=f"nfs://{x['nfs']}")
+            log(f"[zone] primary storage {x['name']} added (nfs://{x['nfs']})")
+    for x in spec.get("extra_secondary") or []:
+        if not cs.find("listImageStores", "imagestore", zoneid=zid, name=x["name"]):
+            cs.run("addImageStore", zoneid=zid, name=x["name"], provider="NFS", url=f"nfs://{x['nfs']}")
+            log(f"[zone] secondary storage {x['name']} added (nfs://{x['nfs']})")
     if spec.get("management_vip"):
         cs.run("updateConfiguration", name="host", value=spec["management_vip"])
         log(f"[zone] global setting host = {spec['management_vip']}")

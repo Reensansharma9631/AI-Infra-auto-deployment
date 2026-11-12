@@ -49,7 +49,22 @@
   when: common_grow_root | bool
   tags: growroot
 
+- name: Static routes that apply to this host
+  ansible.builtin.set_fact:
+    common_my_routes: >-
+      {%- set o = [] -%}
+      {%- for r in autoinfra_static_routes if r.via != ansible_host and ansible_host not in (r.except | default([])) -%}
+      {%- set _ = o.append(r) -%}
+      {%- endfor -%}
+      {{ o }}
+  tags: routes
+
 - name: Static routes (persistent, applied by a systemd unit at boot)
   ansible.builtin.include_tasks: routes.yml
-  when: autoinfra_static_routes | rejectattr('via', 'equalto', ansible_host) | list | length > 0
+  when: common_my_routes | length > 0
+  tags: routes
+
+- name: No routes for this host any more - remove an earlier route unit (and its routes)
+  ansible.builtin.include_tasks: routes_remove.yml
+  when: common_my_routes | length == 0
   tags: routes

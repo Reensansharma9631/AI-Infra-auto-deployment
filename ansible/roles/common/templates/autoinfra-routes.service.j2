@@ -7,10 +7,10 @@ After=network-online.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-{% for r in autoinfra_static_routes if r.via != ansible_host %}
+{% for r in autoinfra_static_routes if r.via != ansible_host and ansible_host not in r.except | default([]) %}
 ExecStart=/usr/sbin/ip route replace {{ r.to }} via {{ r.via }}
 {% endfor %}
-{% for r in autoinfra_static_routes if r.via != ansible_host %}
+{% for r in autoinfra_static_routes if r.via != ansible_host and ansible_host not in r.except | default([]) %}
 ExecStop=-/usr/sbin/ip route del {{ r.to }} via {{ r.via }}
 {% endfor %}
 

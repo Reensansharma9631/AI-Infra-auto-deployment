@@ -12,13 +12,17 @@
 - name: Install the NFS server
   ansible.builtin.package: {name: "{{ nfs_pkgs }}", state: present}
 
+- name: This server's exports (the wizard passes them per server; else the role default)
+  ansible.builtin.set_fact:
+    nfs_exports_eff: "{{ (nfs_exports_by_host | default({})).get(ansible_host, nfs_exports) }}"
+
 - name: Who may mount (default = the /24 of this node)
   ansible.builtin.set_fact:
     nfs_allowed: "{{ ((nfs_allowed_cidrs if (nfs_allowed_cidrs | length) > 0 else [(ansible_host.split('.')[:3] | join('.')) ~ '.0/24']) + nfs_extra_cidrs) | unique }}"
 
 - name: Export directories
   ansible.builtin.file: {path: "{{ item.path }}", state: directory, mode: "0755"}
-  loop: "{{ nfs_exports }}"
+  loop: "{{ nfs_exports_eff }}"
 
 - name: /etc/exports
   ansible.builtin.template: {src: exports.j2, dest: /etc/exports, mode: "0644"}

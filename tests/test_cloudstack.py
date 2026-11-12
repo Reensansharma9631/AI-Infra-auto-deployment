@@ -537,8 +537,18 @@ def test_internal_net_two_kvm_hosts_gateway_and_vxlan_peers(app, operator, lab):
         v = cloudstack.extra_vars(cloudstack.state())
     n = v["kvm_internal_net"]
     assert n["gateway"] == "10.0.1.21" and n["peers"] == ["10.0.1.21", "10.0.1.22"]
-    assert v["autoinfra_static_routes"][0] == {"to": "10.200.0.0/24", "via": "10.0.1.21"}
+    assert {k: v["autoinfra_static_routes"][0][k] for k in ("to", "via")} == {"to": "10.200.0.0/24", "via": "10.0.1.21"}
     assert "10.0.1.22" in n["nat_exempt"] and "10.0.1.21" not in n["nat_exempt"]
+    assert n["host_addresses"] == {"10.0.1.22": "10.200.0.254/24"}                     # agent needs an IP on its private bridge
+    assert n["macs"] == {"10.0.1.21": "02:a1:0a:00:01:15", "10.0.1.22": "02:a1:0a:00:01:16"}   # unique despite cloned machine-ids
+    assert all(r["except"] == ["10.0.1.21", "10.0.1.22"] for r in v["autoinfra_static_routes"])
+
+
+def test_internal_net_member_address_must_not_be_in_pod_range(operator, lab):
+    fill(operator, lab, **_single(lab, kvm=("kvm1", "kvm2")))
+    assert operator.post("/api/cs/wizard/zone", json=dict(INTERNAL, pod_end="10.200.0.254")).status_code == 200
+    r = operator.post("/api/cs/wizard/cluster", json={"clusters": [{"name": "Cluster-1", "host_ids": [lab["kvm1"], lab["kvm2"]]}]})
+    assert r.status_code == 400 and "10.200.0.254" in r.get_json()["fields"]["clusters"]
 
 
 def test_internal_net_vars_and_zone_spec(app, operator, lab):
@@ -548,10 +558,10 @@ def test_internal_net_vars_and_zone_spec(app, operator, lab):
         s = cloudstack.state()
         v, spec = cloudstack.extra_vars(s), cloudstack.zone_spec(s)
     assert v["kvm_bridge_name"] == "cloudbr0" and v["kvm_required_bridges"] == ["cloudbr1"]
-    assert v["kvm_internal_net"] == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
+    assert {k: v["kvm_internal_net"][k] for k in ("bridge", "addresses", "nat_cidrs", "nat_exempt", "gateway", "peers")} == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
                                      "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"], "nat_exempt": ["10.0.0.10", "10.0.0.31"],
                                      "gateway": "10.0.1.21", "peers": ["10.0.1.21"]}
-    assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21"}, {"to": "10.201.0.0/24", "via": "10.0.1.21"}]
+    assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21", "except": ["10.0.1.21"]}, {"to": "10.201.0.0/24", "via": "10.0.1.21", "except": ["10.0.1.21"]}]
     assert v["nfs_extra_cidrs"] == ["10.200.0.0/24"]
     assert spec["kvm_labels"] == {"management": "cloudbr1", "guest": "cloudbr1", "public": "cloudbr1"}
     assert spec["pod"]["gateway"] == "10.200.0.1" and spec["public"]["gateway"] == "10.201.0.1"
@@ -670,3 +680,40 @@ def test_two_mgmt_without_vip_uses_agent_lb(app, operator, lab, cs_mock):
     names = [st["name"] for st in j["steps"]]
     assert names.index("Point CloudStack at the management VIP / servers (global setting 'host')") < names.index(
         "Restart management servers (apply the 'host' setting)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")
+
+
+# ---------------------------------------------------------------- more primary / secondary storage (several NFS servers)
+EXTRA = [{"kind": "primary", "server": "10.0.0.5", "path": "/export/primary2", "name": "primary-2"},
+         {"kind": "secondary", "server": "10.0.0.5", "path": "/export/secondary2", "name": "secondary-2"}]
+
+
+@pytest.mark.parametrize("bad", [
+    [{"kind": "tertiary", "server": "10.0.0.5", "path": "/x", "name": "x"}],
+    [{"kind": "primary", "server": "10.0.0.5", "path": "rel", "name": "x"}],
+    [{"kind": "primary", "server": "10.0.0.5", "path": "/a", "name": "dup"}, {"kind": "secondary", "server": "10.0.0.5", "path": "/b", "name": "dup"}],
+    [{"kind": "primary", "server": "10.0.0.31", "path": "/export/primary", "name": "again"}],          # = the main primary
+    [{"kind": "primary", "server": "10.0.0.5", "path": "/a", "name": "primary-nfs"}],                   # reserved name
+])
+def test_extra_storage_validation(operator, lab, bad):
+    fill(operator, lab)
+    r = operator.post("/api/cs/wizard/cluster", json={"extra_storage": bad})
+    assert r.status_code == 400 and any(k.startswith("extra_storage") for k in r.get_json()["fields"]), r.get_json()
+
+
+def test_extra_storage_spec_exports_and_bootstrap(app, operator, lab, cs_mock):
+    fill(operator, lab, cluster={"extra_storage": EXTRA + [{"kind": "primary", "server": "10.0.0.31", "path": "/export/p3", "name": "primary-3"}]})
+    from autoinfra import cloudstack, db
+    with app.app_context():
+        s = cloudstack.state()
+        spec, v = cloudstack.zone_spec(s), cloudstack.extra_vars(s)
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    assert spec["extra_primary"] == [{"name": "primary-2", "nfs": "10.0.0.5/export/primary2"}, {"name": "primary-3", "nfs": "10.0.0.31/export/p3"}]
+    assert spec["extra_secondary"] == [{"name": "secondary-2", "nfs": "10.0.0.5/export/secondary2"}]
+    # inventory NFS server exports its own paths only; 10.0.0.5 (not a host, e.g. the master) is set up by setup-nfs.sh
+    assert [e["path"] for e in v["nfs_exports_by_host"]["10.0.0.31"]] == ["/export/primary", "/export/secondary", "/export/p3"]
+    assert "10.0.0.5" not in v["nfs_exports_by_host"]
+    j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
+    assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert sorted(p["name"] for p in cs_mock.pools.values()) == ["primary-2", "primary-3", "primary-nfs"]
+    assert sorted(x["name"] for x in cs_mock.stores.values()) == ["secondary-2", "secondary-nfs"]

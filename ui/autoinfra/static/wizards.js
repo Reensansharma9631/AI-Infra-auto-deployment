@@ -53,12 +53,17 @@ window.page_cswizard = async function () {
     afterLoad: async (W, HOSTS) => {
       $$('[name="mode_r"]').forEach((r) => { r.checked = r.value === W.state.requirements.mode; r.addEventListener("change", () => ($('[data-step="requirements"] [name="mode"]').value = r.value)); });
       clusters = JSON.parse(JSON.stringify(W.state.cluster.clusters)); renderClusters(HOSTS);
+      $("#cl-extra").value = (W.state.cluster.extra_storage || []).map((x) => `${x.kind} ${x.server} ${x.path} ${x.name}`).join("\n");
       const items = (await GET("/api/packages/items?limit=200&q=systemvm")).items;
       $("#tpl-sel").innerHTML = `<option value="">- choose -</option>` + items.map((x) => `<option value="${esc(x.path)}" ${W.state.systemvm.template === x.path ? "selected" : ""}>${esc(x.repo)}/${esc(x.path)} (${fmtBytes(x.size)})</option>`).join("");
       ["management", "database", "mq"].forEach((st) => fillForm($(`[data-step="${st}"]`), { host_ids: W.state[st].host_ids, lb_host_ids: W.state[st].lb_host_ids || [] }));
       $("#wz-plan").innerHTML = W.plan.map((p) => `<li>${esc(p.label)} <span class="mono">${esc(p.playbook)}</span></li>`).join("") + "<li>Configure zones, pods, clusters, hosts and storage (API)</li>";
     },
-    collect: (st, f) => { const d = formData(f); delete d.mode_r; if (st === "cluster") { syncClusters(); d.clusters = clusters; } return d; },
+    collect: (st, f) => { const d = formData(f); delete d.mode_r; if (st === "cluster") {
+        syncClusters(); d.clusters = clusters;
+        d.extra_storage = $("#cl-extra").value.split("\n").map((l) => l.trim().split(/\s+/)).filter((p) => p[0])
+          .map(([kind, server, path, name]) => ({ kind, server: server || "", path: path || "", name: name || "" }));
+      } return d; },
     onShow: async (st, W) => { if (st === "review") review(); },
   });
   $("#cl-add").addEventListener("click", () => { syncClusters(); clusters.push({ name: `Cluster-${clusters.length + 1}`, host_ids: [] }); renderClusters(wz.HOSTS); });

@@ -32,9 +32,16 @@ ExecStart=/bin/sh -c 'bridge fdb show dev vxai0 | grep -q "dst {{ p }} " || brid
 {% endfor %}
 {% endif %}
 ExecStart=/bin/sh -c 'ip link show {{ kvm_internal_net.bridge }} >/dev/null 2>&1 || ip link add {{ kvm_internal_net.bridge }} type bridge'
+{% if (kvm_internal_net.macs | default({})).get(ansible_host) %}
+ExecStart=/usr/sbin/ip link set {{ kvm_internal_net.bridge }} address {{ kvm_internal_net.macs[ansible_host] }}
+{% endif %}
 ExecStart=/usr/sbin/ip link set {{ member }} master {{ kvm_internal_net.bridge }}
 ExecStart=/usr/sbin/ip link set {{ member }} up
 ExecStart=/usr/sbin/ip link set {{ kvm_internal_net.bridge }} up
+{% if ansible_host != gw and (kvm_internal_net.host_addresses | default({})).get(ansible_host) %}
+# the KVM agent needs an address on its private bridge (cloudstack: "Incorrect details for private Nic")
+ExecStart=/usr/sbin/ip addr replace {{ kvm_internal_net.host_addresses[ansible_host] }} dev {{ kvm_internal_net.bridge }}
+{% endif %}
 {% if ansible_host == gw %}
 {% for a in kvm_internal_net.addresses | default([]) %}
 ExecStart=/usr/sbin/ip addr replace {{ a }} dev {{ kvm_internal_net.bridge }}

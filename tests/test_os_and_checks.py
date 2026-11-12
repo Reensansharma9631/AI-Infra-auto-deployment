@@ -191,3 +191,27 @@ def test_metrics_script_runs_locally():
     r = subprocess.run(["sh", "-s"], input=sshops.METRICS, text=True, capture_output=True, timeout=30)
     m = sshops.parse_metrics(r.stdout)
     assert 0 <= m["cpu"] <= 100 and 0 <= m["mem"] <= 100 and 0 <= m["disk"] <= 100
+
+
+
+def test_duplicate_machine_id_warns(app, operator):
+    """Cloned VMs share /etc/machine-id (the lab did) - the check job must say so."""
+    from conftest import add_host
+    from autoinfra import db, hosts
+    a, b, c = (add_host(operator, ip, hostname=n) for ip, n in (("10.9.0.1", "h1"), ("10.9.0.2", "h2"), ("10.9.0.3", "h3")))
+    logs = []
+    with app.app_context():
+        for hid, mid in ((a, "same"), (b, "same"), (c, "other")):
+            db.ex("INSERT INTO checks(run_id,host_id,name,status,detail) VALUES(?,?,?,?,?)", (1, hid, "Machine ID", "pass", mid))
+        summary = {a: "ready", b: "ready", c: "ready"}
+        hs = [db.one("SELECT * FROM hosts WHERE id=?", (i,)) for i in (a, b, c)]
+        hosts._duplicate_machine_ids(logs.append, hs, 1, summary)
+        warn = {r["host_id"] for r in db.q("SELECT host_id FROM checks WHERE name='Unique machine ID' AND status='warn'")}
+    assert warn == {a, b} and summary == {a: "ready-with-warnings", b: "ready-with-warnings", c: "ready"}
+    assert any("same /etc/machine-id as h2" in l for l in logs)
+
+
+def test_machine_id_reported():
+    r = sshops.evaluate(facts(MACHINE_ID="c092735d68eb4e01a129d03eefe52b7f"), TH, master_epoch=1000)
+    assert check(r, "Machine ID") == "pass" and any(c["detail"] == "c092735d68eb4e01a129d03eefe52b7f" for c in r)
+    assert all(c["name"] != "Machine ID" for c in sshops.evaluate(facts(), TH, master_epoch=1000))

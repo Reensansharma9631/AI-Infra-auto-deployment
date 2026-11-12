@@ -25,7 +25,8 @@ DEFAULTS = {
              "public_gateway": "", "public_netmask": "255.255.255.0", "public_start": "", "public_end": "", "public_vlan": "untagged",
              "label_mgmt": "cloudbr0", "label_guest": "cloudbr0", "label_public": "cloudbr0", "internal_net": False},
     "cluster": {"clusters": [{"name": "Cluster-1", "host_ids": []}], "primary_server": "", "primary_path": "/export/primary",
-                "secondary_server": "", "secondary_path": "/export/secondary", "kvm_auth": "key", "auto_bridge": True},
+                "secondary_server": "", "secondary_path": "/export/secondary", "kvm_auth": "key", "auto_bridge": True,
+                "extra_storage": []},    # [{"kind": "primary"|"secondary", "server": ip, "path": "/export/x", "name": "primary-2"}]
 }
 
 
@@ -197,6 +198,33 @@ def validate(step, d, full=None):
             err = V.abspath(d.get(f"{k}_path", ""))
             if err:
                 e[f"{k}_path"] = err
+        z = full["zone"]
+        if z.get("internal_net") and len(set(all_ids)) > 1 and not any(k in e for k in ("clusters",)):
+            try:
+                pn = ipaddress.ip_network(f"{z['pod_gateway']}/{z['pod_netmask']}", strict=False)
+                lo, hi = ipaddress.IPv4Address(z["pod_start"]), ipaddress.IPv4Address(z["pod_end"])
+                clash = [a for a in internal_member_ips(pn, len(set(all_ids)) - 1) if lo <= ipaddress.IPv4Address(a) <= hi or a == z["pod_gateway"]]
+                if clash:
+                    e["clusters"] = (f"internal network: the KVM hosts after the first get {', '.join(clash)} (top of the pod subnet) - "
+                                     "end the pod range lower")
+            except (KeyError, ValueError):
+                pass
+        ex = d.get("extra_storage") or []
+        if not isinstance(ex, list):
+            e["extra_storage"] = "extra_storage must be a list"
+            ex = []
+        seen = {"primary-nfs", "secondary-nfs"}
+        for i, x in enumerate(ex):
+            x = x if isinstance(x, dict) else {}
+            err = (V.choice(x.get("kind"), ["primary", "secondary"], "kind") or V.host_or_ip(x.get("server", "")) or V.abspath(x.get("path", ""))
+                   or V.name(x.get("name"), "storage name"))
+            if not err and x["name"] in seen:
+                err = f"duplicate storage name {x['name']}"
+            if not err and (x["server"], x["path"]) in {(d.get("primary_server"), d.get("primary_path")), (d.get("secondary_server"), d.get("secondary_path"))}:
+                err = "this export is already the main primary/secondary storage"
+            if err:
+                e[f"extra_storage.{i}"] = err
+            seen.add(x.get("name"))
         err = V.choice(d.get("kvm_auth", "key"), ["key", "password"], "KVM authentication")
         if err:
             e["kvm_auth"] = err
@@ -248,6 +276,7 @@ def extra_vars(s):
         "cs_timezone": m.get("timezone", "UTC"), "ntp_server": (m.get("ntp") or "").split(",")[0].strip() or inventory.master_ip(),
         "cs_firewall": bool(m.get("firewall")), "cs_ssl": bool(m.get("ssl")), "cs_mgmt_hostname": m.get("hostname"),
         "nfs_exports": [{"name": "primary", "path": s["cluster"]["primary_path"]}, {"name": "secondary", "path": s["cluster"]["secondary_path"]}],
+        "nfs_exports_by_host": nfs_exports_by_host(s, hosts),
         "systemvm_template_url": (inventory.repo_base() + "/" + ("cloudstack/" if not s["systemvm"]["template"].startswith("templates/") else "") +
                                   s["systemvm"]["template"]) if s["systemvm"].get("template") else "",
         "systemvm_secondary": f"{s['cluster']['secondary_server']}:{s['cluster']['secondary_path']}",
@@ -264,6 +293,12 @@ def extra_vars(s):
 INTERNAL_HOST_BRIDGE = "cloudbr0"
 
 
+def internal_member_ips(pn, n):
+    """Addresses for the member KVM hosts on the internal pod subnet: the top of the subnet, downwards."""
+    top = int(pn.broadcast_address)
+    return [str(ipaddress.IPv4Address(top - 1 - i)) for i in range(n)]
+
+
 def _wizard_host_ids(s):
     return {i for ids in groups(s).values() for i in ids}
 
@@ -278,6 +313,7 @@ def internal_net_vars(s, hosts):
     pn = ipaddress.ip_network(f"{z['pod_gateway']}/{z['pod_netmask']}", strict=False)
     bn = ipaddress.ip_network(f"{z['public_gateway']}/{z['public_netmask']}", strict=False)
     kvm_ip = hosts[kvm_ids[0]]["ip"]
+    peers = [hosts[i]["ip"] for i in kvm_ids if i in hosts]
     return {"kvm_bridge_name": INTERNAL_HOST_BRIDGE,
             "kvm_internal_net": {"bridge": z["label_mgmt"], "addresses": [f"{z['pod_gateway']}/{pn.prefixlen}", f"{z['public_gateway']}/{bn.prefixlen}"],
                                  "nat_cidrs": [str(pn), str(bn)],
@@ -285,8 +321,13 @@ def internal_net_vars(s, hosts):
                                  # the agent certificate against the client IP ("Certificate ownership verification failed")
                                  "nat_exempt": sorted({h["ip"] for hid, h in hosts.items() if hid in _wizard_host_ids(s) and h["ip"] != kvm_ip}),
                                  # first KVM host = gateway; the others join the bridge over VXLAN
-                                 "gateway": kvm_ip, "peers": [hosts[i]["ip"] for i in kvm_ids if i in hosts]},
-            "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip}, {"to": str(bn), "via": kvm_ip}],
+                                 "gateway": kvm_ip, "peers": peers,
+                                 # the agent needs an address on its private bridge: members get one from the top of the pod subnet
+                                 "host_addresses": {ip: f"{a}/{pn.prefixlen}" for ip, a in zip(peers[1:], internal_member_ips(pn, len(peers) - 1))},
+                                 # explicit, per-host MAC: cloned VMs share /etc/machine-id, so systemd gives every bridge the same MAC
+                                 "macs": {ip: "02:a1:" + ":".join(f"{int(o):02x}" for o in ip.split(".")) for ip in peers}},
+            # KVM hosts are on the internal bridge themselves: no route for them (it would hide the connected subnet)
+            "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip, "except": peers}, {"to": str(bn), "via": kvm_ip, "except": peers}],
             "nfs_extra_cidrs": [str(pn)]}
 
 
@@ -305,7 +346,26 @@ def zone_spec(s, kvm_password=None):
                        "vlan": z.get("public_vlan") or "untagged"},
             "kvm_labels": {"management": z["label_mgmt"], "guest": z["label_guest"], "public": z["label_public"]},
             "clusters": clusters, "primary_nfs": f"{c['primary_server']}{c['primary_path']}",
-            "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": mgmt_host_setting(s)}
+            "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": mgmt_host_setting(s),
+            "extra_primary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "primary"],
+            "extra_secondary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "secondary"]}
+
+
+def _storage_list(s):
+    c = s["cluster"]
+    out = [("primary", c["primary_server"], c["primary_path"], "primary-nfs"), ("secondary", c["secondary_server"], c["secondary_path"], "secondary-nfs")]
+    return out + [(x["kind"], x["server"], x["path"], x["name"]) for x in c.get("extra_storage") or []]
+
+
+def nfs_exports_by_host(s, hosts):
+    """Every inventory NFS server exports only its own paths (servers outside the inventory, e.g. the master, are set up
+    with master/setup-nfs.sh)."""
+    out = {}
+    for h in hosts.values():
+        mine = [{"name": n, "path": p} for _, srv, p, n in _storage_list(s) if srv in (h["ip"], h.get("hostname"))]
+        if mine:
+            out[h["ip"]] = mine
+    return out
 
 
 def needs_lb(s):
@@ -333,8 +393,8 @@ def groups(s):
         g_["cs_lb"] = s["management"].get("lb_host_ids", [])
     if s["mq"].get("enabled"):
         g_["mq"] = s["mq"]["host_ids"]
-    nfs = [h["id"] for h in db.q("SELECT id, ip, hostname FROM hosts")
-           if s["cluster"]["primary_server"] in (h["ip"], h["hostname"]) or s["cluster"]["secondary_server"] in (h["ip"], h["hostname"])]
+    servers = {srv for _, srv, _, _ in _storage_list(s)}
+    nfs = [h["id"] for h in db.q("SELECT id, ip, hostname FROM hosts") if h["ip"] in servers or h["hostname"] in servers]
     g_["cs_nfs"] = nfs
     return g_
 

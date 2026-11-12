@@ -3,6 +3,8 @@
 #   unzip autoinfra-master-YYYYMMDD.zip -d /opt          -> /opt/autoinfra
 #   sudo bash /opt/autoinfra/master/install-autoinfra.sh
 # Options (environment): MASTER_IP=10.0.0.5  ADMIN_PASSWORD=...  UI_PORT=443  REPO_PORT=8081  NTP_ALLOW=10.0.0.0/16
+#   NFS_EXPORTS="/export/primary2 /export/secondary2" NFS_CLIENTS="10.0.0.0/24"  the master also serves NFS (master/setup-nfs.sh;
+#   needs the cloudstack package zip uploaded first - re-run the installer afterwards)
 #                        NO_SYSTEMD=1 (containers/chroots: start gunicorn + nginx directly)  SKIP_OS_PACKAGES=1
 set -Eeuo pipefail
 APP=/opt/autoinfra DATA=/var/lib/autoinfra ETC=/etc/autoinfra
@@ -172,6 +174,14 @@ else
 fi
 for i in $(seq 1 30); do curl -fsk -o /dev/null "https://127.0.0.1:$UI_PORT/login" && break; sleep 1; done
 curl -fsk -o /dev/null "https://127.0.0.1:$UI_PORT/login" || die "UI did not come up - check: journalctl -u autoinfra (or $DATA/gunicorn.log)"
+
+if [ -n "${NFS_EXPORTS:-}" ]; then
+  if ls "$DATA"/repo/*/deb/Packages "$DATA"/repo/*/rpm/repodata/repomd.xml >/dev/null 2>&1; then
+    REPO_ROOT="$DATA/repo" MASTER_IP="$MASTER_IP" bash "$(dirname "$0")/setup-nfs.sh"
+  else
+    echo "NOTE: NFS_EXPORTS set, but no package repository is uploaded yet - upload the cloudstack zip, then re-run this script"
+  fi
+fi
 
 cat <<EOT
 

@@ -215,6 +215,30 @@ def check_host(h, opts, log, master_epoch):
     return status, res
 
 
+def _duplicate_machine_ids(log, hosts, job_id, summary):
+    """Cloned VMs often share /etc/machine-id; systemd then gives every bridge the same MAC (seen on the lab: identical
+    cloudbr1 MACs on two KVM hosts) and DHCP/journald identities collide. Compared with every host's latest result."""
+    latest = {}
+    for r in db.q("SELECT c.host_id, c.detail FROM checks c JOIN (SELECT host_id, MAX(id) m FROM checks WHERE name='Machine ID' "
+                  "GROUP BY host_id) x ON c.id = x.m"):
+        latest[r["host_id"]] = r["detail"]
+    by_id = {}
+    for hid, mid in latest.items():
+        by_id.setdefault(mid, []).append(hid)
+    names = {h["id"]: h for h in db.q("SELECT id, ip, hostname FROM hosts")}
+    for h in hosts:
+        same = [names[o]["hostname"] or names[o]["ip"] for o in by_id.get(latest.get(h["id"]), []) if o != h["id"] and o in names]
+        if not same:
+            continue
+        msg = (f"same /etc/machine-id as {', '.join(same)} (cloned VM?) - regenerate it: rm /etc/machine-id && "
+               "systemd-machine-id-setup, then reboot")
+        db.ex("INSERT INTO checks(run_id,host_id,name,status,detail) VALUES(?,?,?,?,?)", (job_id, h["id"], "Unique machine ID", "warn", msg))
+        log(f"[{h['hostname'] or h['ip']} ({h['ip']})] Unique machine ID: WARN - {msg}")
+        if summary.get(h["id"]) == "ready":
+            summary[h["id"]] = "ready-with-warnings"
+            db.ex("UPDATE hosts SET status='ready-with-warnings' WHERE id=?", (h["id"],))
+
+
 @jobs.register("run_checks")
 def run_checks(log, host_ids, opts, job_id=None):
     hosts = [db.one("SELECT * FROM hosts WHERE id=?", (i,)) for i in host_ids]
@@ -239,6 +263,7 @@ def run_checks(log, host_ids, opts, job_id=None):
 
     with ThreadPoolExecutor(max_workers=max(1, min(16, int(opts.get("parallel", 8))))) as ex:
         list(ex.map(one_host, hosts))
+    _duplicate_machine_ids(log, hosts, job_id, summary)
     counts = {}
     for st in summary.values():
         counts[st] = counts.get(st, 0) + 1

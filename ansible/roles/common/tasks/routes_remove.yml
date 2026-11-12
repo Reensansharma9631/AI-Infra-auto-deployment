@@ -1,0 +1,16 @@
+---
+- name: Earlier route unit
+  ansible.builtin.stat: {path: /etc/systemd/system/autoinfra-routes.service}
+  register: rt_old
+
+- name: Stop it (ExecStop deletes its routes) and remove it
+  when: rt_old.stat.exists
+  block:
+    - name: Stop and disable
+      ansible.builtin.systemd: {name: autoinfra-routes.service, state: stopped, enabled: false}
+      when: autoinfra_services | bool
+    - name: Remove the unit
+      ansible.builtin.file: {path: /etc/systemd/system/autoinfra-routes.service, state: absent}
+    - name: Reload systemd
+      ansible.builtin.systemd: {daemon_reload: true}
+      when: autoinfra_services | bool

@@ -635,6 +635,21 @@ def test_internal_net_unit(rendered, fam):
     assert "ExecStartPre=-/usr/sbin/ip link del aidummy0" in t
 
 
+def test_routes_unit_skips_hosts_in_except():
+    import jinja2
+    tpl = jinja2.Environment(trim_blocks=True).from_string((ANS / "roles/common/templates/autoinfra-routes.service.j2").read_text())
+    routes = [{"to": "10.200.0.0/24", "via": "10.0.0.43", "except": ["10.0.0.43", "10.0.0.44"]}]
+    assert "ip route replace" in tpl.render(autoinfra_static_routes=routes, ansible_host="10.0.0.41")
+    assert "ip route replace" not in tpl.render(autoinfra_static_routes=routes, ansible_host="10.0.0.44")
+
+
+def test_common_removes_route_unit_when_no_route_applies():
+    tasks = {t["name"]: t for t in yaml.safe_load((ANS / "roles/common/tasks/main.yml").read_text())}
+    assert "routes_remove.yml" in str(tasks["No routes for this host any more - remove an earlier route unit (and its routes)"])
+    rm = yaml.safe_load((ANS / "roles/common/tasks/routes_remove.yml").read_text())
+    assert "autoinfra-routes.service" in str(rm) and "absent" in str(rm)
+
+
 @pytest.mark.parametrize("fam", list(FAMILIES))
 def test_routes_unit_skips_own_gateway(rendered, fam):
     ex = _unit_exec((rendered[fam] / "common__templates__autoinfra-routes.service").read_text())
@@ -717,7 +732,8 @@ def _render_internal(host, peers, gw):
     env.filters["default"] = lambda v, d="", b=False: d if (v is None or isinstance(v, jinja2.Undefined) or (b and not v)) else v
     tpl = env.from_string((ANS / "roles/kvm_host/templates/autoinfra-internal-net.service.j2").read_text())
     net = {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24"], "nat_cidrs": ["10.200.0.0/24"], "nat_exempt": [p for p in peers if p != gw],
-           "gateway": gw, "peers": peers}
+           "gateway": gw, "peers": peers, "host_addresses": {p: "10.200.0.254/24" for p in peers if p != gw},
+           "macs": {p: "02:a1:00:00:00:%02x" % i for i, p in enumerate(peers, 1)}}
     return tpl.render(kvm_internal_net=net, ansible_host=host)
 
 
@@ -728,7 +744,9 @@ def test_internal_net_multi_host_render():
         assert "ExecStartPre=-/usr/sbin/ip link del dummyai0" in t        # a host that gained peers drops its dummy
     assert "dst 192.0.2.2" in g and "dst 192.0.2.1" not in g and "dst 192.0.2.1" in m
     assert "ip addr replace 10.200.0.1/24" in g and "MASQUERADE" in g
-    assert "ip addr replace" not in m and "MASQUERADE" not in m          # only the gateway owns addresses + NAT
+    assert "ip addr replace 10.200.0.1/24" not in m and "MASQUERADE" not in m   # only the gateway owns the gateway address + NAT
+    assert "ip addr replace 10.200.0.254/24 dev cloudbr1" in m and "10.200.0.254" not in g   # member: its own agent address
+    assert "cloudbr1 address 02:a1:00:00:00:01" in g and "cloudbr1 address 02:a1:00:00:00:02" in m
     assert re.match(r"^vx", "vxai0") and len("vxai0.4094") <= 15        # agent pattern ^vx, IFNAMSIZ
 
 
@@ -753,8 +771,8 @@ def test_internal_net_two_hosts_really_connect_over_vxlan(tmp_path):
                 for c in cmds:
                     r = sh(n, c)
                     assert r.returncode == 0 or " del " in c, (n, c, r.stderr)
-        assert sh("b", "ip addr add 10.200.0.50/24 dev cloudbr1").returncode == 0
-        r = sh("b", "ping -c 2 -W 2 10.200.0.1")
+        assert "02:a1:00:00:00:02" in sh("b", "cat /sys/class/net/cloudbr1/address").stdout
+        r = sh("b", "ping -c 2 -W 2 10.200.0.1")                              # from the member's own agent address .254
         assert r.returncode == 0, r.stdout + r.stderr
         # guest VLAN the way CloudStack builds it: <member>.<vlan> on each host
         for n, last in (("a", 1), ("b", 2)):

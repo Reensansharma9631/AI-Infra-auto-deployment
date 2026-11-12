@@ -68,6 +68,9 @@
         <div class="row"><div class="f"><label>Server *</label><input type="text" name="secondary_server"></div><div class="f"><label>Path *</label><input type="text" name="secondary_path"></div></div>
         <div class="f"><label>KVM host authentication (CloudStack addHost)</label><select name="kvm_auth"><option value="key">Management server SSH key (installed by Ansible)</option><option value="password">Root password (asked at deploy, not stored)</option></select></div>
         <label class="chk"><input type="checkbox" name="auto_bridge"> Create the KVM bridge automatically on each host (detects the NIC, IP, gateway and DNS; undoes itself if the host becomes unreachable)</label>
+        <h2 class="mt">More storage (optional)</h2>
+        <div class="f" data-err="extra_storage"><label>One per line: <span class="mono">primary|secondary &lt;server&gt; &lt;path&gt; &lt;name&gt;</span> - e.g. <span class="mono">primary 10.0.0.5 /export/primary2 primary-2</span>. A server that is not a host here (e.g. the master) must already export the path (master/setup-nfs.sh).</label>
+          <textarea id="cl-extra" rows="3" class="mono" placeholder="secondary 10.0.0.5 /export/secondary2 secondary-2"></textarea></div>
         <p class="hint">Hosts that already have the bridge are left alone. Guest/Public on a second NIC: set the host variable <span class="mono">{"kvm_extra_bridges": {"cloudbr1": "eno2"}}</span> in Host Management.</p>
         <p class="hint">A host that is the NFS server must be in the inventory (role Storage) - it is configured by 22-nfs.yml.</p>
       </form>
