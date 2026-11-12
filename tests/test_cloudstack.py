@@ -499,3 +499,57 @@ def test_wizard_passes_automatic_bridge_setting_to_the_kvm_role(app, operator, l
 def test_automatic_bridge_is_the_wizard_default(operator):
     st = operator.get("/api/cs/wizard").get_json()["state"]
     assert st["cluster"]["auto_bridge"] is True and st["zone"]["label_guest"] == "cloudbr0"
+
+
+# ---------------------------------------------------------------- internal pod/public network (LAN without spare IPs)
+INTERNAL = {"internal_net": True, "label_mgmt": "cloudbr1", "label_guest": "cloudbr1", "label_public": "cloudbr1",
+            "pod_gateway": "10.200.0.1", "pod_netmask": "255.255.255.0", "pod_start": "10.200.0.10", "pod_end": "10.200.0.29",
+            "public_gateway": "10.201.0.1", "public_netmask": "255.255.255.0", "public_start": "10.201.0.10", "public_end": "10.201.0.29"}
+SINGLE = {"management": {"host_ids": [], "vip": "", "lb_host_ids": []}, "database": {"strategy": "single", "host_ids": [], "vip": ""}}
+
+
+def _single(lab, kvm=("kvm1",)):
+    return {"management": {"host_ids": [lab["mgmt1"]], "vip": "", "lb_host_ids": []},
+            "database": {"strategy": "single", "host_ids": [lab["mgmt1"]], "vip": ""},
+            "zone": dict(INTERNAL), "cluster": {"clusters": [{"name": "Cluster-1", "host_ids": [lab[k] for k in kvm]}]}}
+
+
+@pytest.mark.parametrize("over,field", [
+    ({"label_guest": "cloudbr0"}, "label_mgmt"),                                                  # labels must name one bridge
+    ({"label_mgmt": "cloudbr0", "label_guest": "cloudbr0", "label_public": "cloudbr0"}, "label_mgmt"),   # not the host bridge
+    ({"public_gateway": "10.200.0.1", "public_start": "10.200.0.100", "public_end": "10.200.0.120"}, "public_gateway"),  # same subnet
+    ({"pod_gateway": "10.0.1.1", "pod_start": "10.0.1.100", "pod_end": "10.0.1.120"}, "pod_gateway"),  # contains a host IP (kvm1)
+])
+def test_internal_net_zone_validation(operator, lab, over, field):
+    r = operator.post("/api/cs/wizard/zone", json=dict(INTERNAL, **over))
+    assert r.status_code == 400 and field in r.get_json()["fields"], r.get_json()
+
+
+def test_internal_net_needs_exactly_one_kvm_host(operator, lab):
+    o = _single(lab)
+    fill(operator, lab, **o)
+    r = operator.post("/api/cs/wizard/cluster", json={"clusters": [{"name": "Cluster-1", "host_ids": [lab["kvm1"], lab["kvm2"]]}]})
+    assert r.status_code == 400 and "exactly one KVM host" in r.get_json()["fields"]["clusters"]
+
+
+def test_internal_net_vars_and_zone_spec(app, operator, lab):
+    fill(operator, lab, **_single(lab))
+    from autoinfra import cloudstack
+    with app.app_context():
+        s = cloudstack.state()
+        v, spec = cloudstack.extra_vars(s), cloudstack.zone_spec(s)
+    assert v["kvm_bridge_name"] == "cloudbr0" and v["kvm_required_bridges"] == ["cloudbr1"]
+    assert v["kvm_internal_net"] == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
+                                     "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"]}
+    assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21"}, {"to": "10.201.0.0/24", "via": "10.0.1.21"}]
+    assert v["nfs_extra_cidrs"] == ["10.200.0.0/24"]
+    assert spec["kvm_labels"] == {"management": "cloudbr1", "guest": "cloudbr1", "public": "cloudbr1"}
+    assert spec["pod"]["gateway"] == "10.200.0.1" and spec["public"]["gateway"] == "10.201.0.1"
+
+
+def test_without_internal_net_no_extra_vars(app, operator, lab):
+    fill(operator, lab)
+    from autoinfra import cloudstack
+    with app.app_context():
+        v = cloudstack.extra_vars(cloudstack.state())
+    assert "kvm_internal_net" not in v and "autoinfra_static_routes" not in v and v["kvm_bridge_name"] == "cloudbr0"

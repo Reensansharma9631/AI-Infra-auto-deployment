@@ -20,7 +20,10 @@ SAMPLE_VARS = {"db_vip": "10.0.0.40", "db_dbha_password": "x" * 20, "db_acs_admi
                "db_server_id": 1, "vrrp_iface": "eth0", "pxc_iface": "eth0", "lb_iface": "eth0", "cs_mgmt_vip": "10.0.0.20",
                "cs_mgmt_vrrp_pass": "pass1234", "master_ip": "10.0.0.5", "ntp_server": "", "airgap_repo_base": "http://10.0.0.5:8081/repo",
                "kvm_bridge_port": "eno1", "kvm_gateway": "10.0.1.1", "kvm_prefix": 24, "primary_out": "", "db_ips": ["10.0.0.41", "10.0.0.42", "10.0.0.43"],
-               "nfs_allowed": ["10.0.0.0/24"], "rabbitmq_password": "r" * 20, "rabbitmq_cookie": "c" * 32, "db_client_ips": ["10.0.0.10"]}
+               "nfs_allowed": ["10.0.0.0/24"], "rabbitmq_password": "r" * 20, "rabbitmq_cookie": "c" * 32, "db_client_ips": ["10.0.0.10"],
+               "kvm_internal_net": {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"], "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"]},
+               "autoinfra_static_routes": [{"to": "10.200.0.0/24", "via": "10.0.0.43"}, {"to": "10.201.0.0/24", "via": "10.0.0.43"},
+                                           {"to": "10.9.9.0/24", "via": "10.0.0.41"}]}
 
 
 @pytest.mark.parametrize("pb", PLAYBOOKS)
@@ -591,3 +594,83 @@ def test_bridge_tasks_run_under_real_ansible(tmp_path):
     assert "10.0.0.21/24 on ens3 (ethernet), gateway 10.0.0.1, DNS 10.0.0.1,10.0.0.2, managed by netplan -> bridge cloudbr0: needed" in r.stdout
     net = yaml.safe_load((root / "etc/netplan/60-autoinfra-cloudbr.yaml").read_text())["network"]
     assert set(net["bridges"]) == {"cloudbr0", "cloudbr1"}
+
+
+# ---------------------------------------------------------------- internal pod/public network, static routes, root growing
+def _unit_exec(text):
+    return [l.split("=", 1)[1] for l in text.splitlines() if l.startswith("ExecStart=")]
+
+
+@pytest.mark.parametrize("fam", list(FAMILIES))
+def test_internal_net_unit(rendered, fam):
+    t = (rendered[fam] / "kvm_host__templates__autoinfra-internal-net.service").read_text()
+    ex = _unit_exec(t)
+    assert any("ip link add aidummy0 type dummy" in c for c in ex) and any("ip link add cloudbr1 type bridge" in c for c in ex)
+    assert "/usr/sbin/ip addr replace 10.200.0.1/24 dev cloudbr1" in ex and "/usr/sbin/ip addr replace 10.201.0.1/24 dev cloudbr1" in ex
+    assert sum("-s 10.20" in c and "! -o cloudbr1 -j MASQUERADE" in c for c in ex) == 2
+    assert "Before=libvirtd.service cloudstack-agent.service" in t
+    # VLAN devices CloudStack creates on the dummy parent must fit IFNAMSIZ (15): aidummy0.4094
+    assert len("aidummy0.4094") <= 15
+
+
+@pytest.mark.parametrize("fam", list(FAMILIES))
+def test_routes_unit_skips_own_gateway(rendered, fam):
+    ex = _unit_exec((rendered[fam] / "common__templates__autoinfra-routes.service").read_text())
+    assert ex == ["/usr/sbin/ip route replace 10.200.0.0/24 via 10.0.0.43", "/usr/sbin/ip route replace 10.201.0.0/24 via 10.0.0.43"]
+
+
+def test_new_units_verify(rendered, tmp_path):
+    if not shutil.which("systemd-analyze"):
+        pytest.skip("systemd-analyze not available")
+    for n in ("kvm_host__templates__autoinfra-internal-net.service", "common__templates__autoinfra-routes.service"):
+        u = tmp_path / n.split("__")[-1]
+        u.write_text((rendered["Debian"] / n).read_text())
+        r = subprocess.run(["systemd-analyze", "verify", str(u)], capture_output=True, text=True)
+        assert "Invalid" not in r.stderr and "Unknown" not in r.stderr, r.stderr
+
+
+needs_root = pytest.mark.skipif(os.geteuid() != 0, reason="needs root (network namespaces / loop devices)")
+
+
+@needs_root
+@pytest.mark.skipif(not shutil.which("unshare") or not shutil.which("iptables"), reason="unshare/iptables missing")
+def test_internal_net_unit_really_builds_the_network(rendered, tmp_path):
+    """Run the unit's ExecStart commands for real in a private network namespace, twice (idempotent)."""
+    ex = _unit_exec((rendered["Debian"] / "kvm_host__templates__autoinfra-internal-net.service").read_text())
+    script = tmp_path / "net.sh"
+    body = "\n".join(c.replace("/usr/sbin/sysctl -q -w", "sysctl -q -w") for c in ex)
+    script.write_text("set -e\nip link set lo up\n" + body + "\n" + body + "\n"
+                      "ip -br addr show cloudbr1\nip -d link show aidummy0\niptables -t nat -S POSTROUTING\nsysctl -n net.ipv4.ip_forward\n"
+                      "ip link add link aidummy0 name aidummy0.4094 type vlan id 4094 && echo VLAN-OK\n")
+    r = subprocess.run(["unshare", "-n", "sh", str(script)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = r.stdout
+    assert "10.200.0.1/24" in out and "10.201.0.1/24" in out and "master cloudbr1" in out and "VLAN-OK" in out
+    assert out.count("MASQUERADE") == 2, out          # second run added nothing
+    assert out.strip().splitlines()[-2] == "1"
+
+
+@needs_root
+@pytest.mark.skipif(not all(shutil.which(t) for t in ("growpart", "mkfs.xfs", "losetup", "sfdisk")), reason="growpart/xfsprogs missing")
+def test_growroot_really_grows_xfs(tmp_path):
+    """growroot.yml's script on a loop disk: 600 MB disk, 300 MB xfs partition -> grown to the end of the disk; 2nd run unchanged."""
+    img, mnt = tmp_path / "disk.img", tmp_path / "mnt"
+    mnt.mkdir()
+    subprocess.run(["truncate", "-s", "600M", str(img)], check=True)
+    subprocess.run(["sfdisk", "-q", str(img)], input="label: gpt\n,300M\n", text=True, check=True)
+    loop = subprocess.run(["losetup", "-fP", "--show", str(img)], capture_output=True, text=True, check=True).stdout.strip()
+    try:
+        subprocess.run(["mkfs.xfs", "-q", loop + "p1"], check=True)
+        subprocess.run(["mount", loop + "p1", str(mnt)], check=True)
+        tasks = yaml.safe_load((ANS / "roles/common/tasks/growroot.yml").read_text())
+        sh = next(t for t in tasks if t["name"] == "Grow")["ansible.builtin.shell"].replace("{{ common_grow_mount | quote }}", str(mnt))
+        size = lambda: int(subprocess.run(["df", "--output=size", "-B1M", str(mnt)], capture_output=True, text=True).stdout.split()[-1])
+        before = size()
+        r1 = subprocess.run(["bash", "-c", sh], capture_output=True, text=True)
+        assert r1.returncode == 0 and "GROWN" in r1.stdout, r1.stdout + r1.stderr
+        assert size() > before + 250, (before, size())
+        r2 = subprocess.run(["bash", "-c", sh], capture_output=True, text=True)
+        assert r2.returncode == 0 and "UNCHANGED" in r2.stdout, r2.stdout + r2.stderr
+    finally:
+        subprocess.run(["umount", str(mnt)])
+        subprocess.run(["losetup", "-d", loop])

@@ -1,4 +1,4 @@
 ---
-kvm_pkgs: [qemu-kvm, qemu-img, libvirt, virt-install, edk2-ovmf, nfs-utils]
+kvm_pkgs: [qemu-kvm, qemu-img, libvirt, virt-install, edk2-ovmf, nfs-utils, iptables-nft]
 kvm_agent_pkgs: [cloudstack-agent]
 libvirt_defaults_file: /etc/sysconfig/libvirtd

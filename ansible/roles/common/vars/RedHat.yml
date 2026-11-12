@@ -1,4 +1,4 @@
 ---
-os_pkgs: [chrony, curl, jq, rsync, ethtool, ca-certificates, python3, iproute]
+os_pkgs: [chrony, curl, jq, rsync, ethtool, ca-certificates, python3, iproute, cloud-utils-growpart, xfsprogs, e2fsprogs]
 chrony_conf: /etc/chrony.conf
 chrony_service: chronyd

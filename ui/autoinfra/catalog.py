@@ -41,6 +41,7 @@ PRODUCTS = {
             {"id": "qemu", "label": "QEMU/KVM", "deb": ["qemu-system-x86", "qemu-utils", "ovmf", "cpu-checker"], "rpm": ["qemu-kvm", "qemu-img", "edk2-ovmf"], "size_mb": 140},
             {"id": "libvirt", "label": "Libvirt", "deb": ["libvirt-daemon-system", "libvirt-clients", "virtinst"], "rpm": ["libvirt", "virt-install"], "size_mb": 60},
             {"id": "bridge", "label": "Bridge/VLAN/OVS tools", "deb": ["bridge-utils", "vlan", "openvswitch-switch"], "rpm": ["openvswitch3.1", "NetworkManager-ovs"], "size_mb": 30},
+            {"id": "netfilter", "label": "iptables (internal network NAT)", "deb": ["iptables"], "rpm": ["iptables-nft"], "size_mb": 3},
         ]},
     "databases": {
         "label": "Databases", "versions": ["8.0", "8.4"], "repo": "databases",
@@ -65,6 +66,8 @@ PRODUCTS = {
             {"id": "base", "label": "chrony, curl, jq, rsync, ethtool, python3", "deb": ["chrony", "python3-apt", "curl", "jq", "rsync", "ethtool", "ca-certificates", "iproute2"],
              "rpm": ["chrony", "curl", "jq", "rsync", "ethtool", "ca-certificates", "python3", "iproute"], "size_mb": 40},
             {"id": "tools", "label": "openssl, procps, NFS client", "deb": ["openssl", "procps", "nfs-common"], "rpm": ["openssl", "procps-ng", "nfs-utils"], "size_mb": 15},
+            {"id": "disk", "label": "growpart, xfs/ext4 tools (grow the root disk)", "deb": ["cloud-guest-utils", "xfsprogs", "e2fsprogs"],
+             "rpm": ["cloud-utils-growpart", "xfsprogs", "e2fsprogs"], "size_mb": 6},
         ]},
     "ollama": {
         "label": "Ollama (AI)", "versions": ["0.3"], "repo": "ollama",

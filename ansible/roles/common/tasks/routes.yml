@@ -1,0 +1,8 @@
+---
+- name: Route unit
+  ansible.builtin.template: {src: autoinfra-routes.service.j2, dest: /etc/systemd/system/autoinfra-routes.service, mode: "0644"}
+  register: rt_unit
+
+- name: Routes active now and at boot
+  ansible.builtin.systemd: {name: autoinfra-routes.service, enabled: true, state: "{{ 'restarted' if rt_unit is changed else 'started' }}", daemon_reload: true}
+  when: autoinfra_services | bool

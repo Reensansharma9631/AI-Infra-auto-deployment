@@ -14,7 +14,7 @@
 
 - name: Who may mount (default = the /24 of this node)
   ansible.builtin.set_fact:
-    nfs_allowed: "{{ nfs_allowed_cidrs if (nfs_allowed_cidrs | length) > 0 else [(ansible_host.split('.')[:3] | join('.')) ~ '.0/24'] }}"
+    nfs_allowed: "{{ ((nfs_allowed_cidrs if (nfs_allowed_cidrs | length) > 0 else [(ansible_host.split('.')[:3] | join('.')) ~ '.0/24']) + nfs_extra_cidrs) | unique }}"
 
 - name: Export directories
   ansible.builtin.file: {path: "{{ item.path }}", state: directory, mode: "0755"}

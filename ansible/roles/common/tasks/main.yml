@@ -43,3 +43,13 @@
   ansible.builtin.service: {name: "{{ chrony_service }}", state: started, enabled: true}
   when: autoinfra_services | bool
   tags: ntp
+
+- name: Grow the root partition and filesystem into free disk space
+  ansible.builtin.include_tasks: growroot.yml
+  when: common_grow_root | bool
+  tags: growroot
+
+- name: Static routes (persistent, applied by a systemd unit at boot)
+  ansible.builtin.include_tasks: routes.yml
+  when: autoinfra_static_routes | rejectattr('via', 'equalto', ansible_host) | list | length > 0
+  tags: routes

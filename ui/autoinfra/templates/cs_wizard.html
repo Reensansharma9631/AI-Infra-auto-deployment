@@ -58,6 +58,7 @@
           <div class="f"><label>VLAN (or untagged)</label><input type="text" name="public_vlan"></div></div>
         <h2 class="mt">KVM traffic labels (bridges on the hosts)</h2>
         <div class="row"><div class="f"><label>Management</label><input type="text" name="label_mgmt"></div><div class="f"><label>Guest</label><input type="text" name="label_guest"></div><div class="f"><label>Public</label><input type="text" name="label_public"></div></div>
+        <label class="chk"><input type="checkbox" name="internal_net"> Internal network on the KVM host (no spare LAN IPs): the pod and public subnets above exist only on the single KVM host, on an internal bridge named by the labels (e.g. <span class="mono">cloudbr1</span>); the KVM host is their gateway and the other hosts get a route to them</label>
       </form>
       <form class="pane" data-step="cluster"><h2>Clusters, KVM Hosts &amp; Storage</h2><div class="errs"></div>
         <div id="cl-list"></div><button type="button" class="btn sm o" id="cl-add">{{ ic('plus') }} Add Cluster</button>

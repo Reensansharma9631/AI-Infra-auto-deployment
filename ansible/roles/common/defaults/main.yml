@@ -4,3 +4,7 @@ common_packages: []                 # extra packages on every node
 ntp_server: ""
 manage_hostname: true
 autoinfra_services: true            # false in test chroots without systemd
+common_grow_root: true              # grow the root partition + filesystem into free space on its disk (VM disks enlarged later)
+common_grow_mount: /
+autoinfra_static_routes: []         # [{to: 10.200.0.0/24, via: 172.27.15.240}] - persistent routes (systemd unit, any OS family);
+                                    #   a route whose 'via' is this host itself is skipped

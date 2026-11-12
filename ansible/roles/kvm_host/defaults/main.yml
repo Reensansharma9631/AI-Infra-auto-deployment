@@ -5,4 +5,7 @@ kvm_bridge_name: cloudbr0
 kvm_extra_bridges: {}              # per host: {"cloudbr1": "eno2"} = extra bridge without an IP on an unused NIC (guest/public traffic)
 kvm_required_bridges: []           # bridges that must exist afterwards (the wizard passes the three traffic labels)
 kvm_bridge_rollback_seconds: 120
-kvm_network_apply: true            # false = only write the config (tests)
+kvm_network_apply: true
+kvm_internal_net: {}               # {bridge: cloudbr1, addresses: [10.200.0.1/24, 10.201.0.1/24]}: an internal bridge (no NIC, on
+                                   # a dummy device) that is the pod + public gateway for system VMs when the LAN has no spare IPs;
+                                   # this host routes it to the LAN (ip_forward). Other hosts reach it with autoinfra_static_routes.            # false = only write the config (tests)

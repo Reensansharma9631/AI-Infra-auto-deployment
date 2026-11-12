@@ -1,0 +1,18 @@
+# managed by AutoInfra - persistent static routes (autoinfra_static_routes)
+[Unit]
+Description=AutoInfra static routes
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+{% for r in autoinfra_static_routes if r.via != ansible_host %}
+ExecStart=/usr/sbin/ip route replace {{ r.to }} via {{ r.via }}
+{% endfor %}
+{% for r in autoinfra_static_routes if r.via != ansible_host %}
+ExecStop=-/usr/sbin/ip route del {{ r.to }} via {{ r.via }}
+{% endfor %}
+
+[Install]
+WantedBy=multi-user.target

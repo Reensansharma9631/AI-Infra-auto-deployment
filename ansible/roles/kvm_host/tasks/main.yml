@@ -43,6 +43,10 @@
   notify: restart libvirtd
   failed_when: false
 
+- name: Internal pod/public network on this host (LAN without spare IPs)
+  ansible.builtin.include_tasks: internal_net.yml
+  when: (kvm_internal_net | default({})).bridge | default('') | length > 0
+
 - name: Bridge for CloudStack - detected and created automatically, with rollback
   ansible.builtin.include_tasks: bridge.yml
   when: kvm_manage_network | bool

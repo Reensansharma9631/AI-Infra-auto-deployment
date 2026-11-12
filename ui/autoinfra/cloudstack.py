@@ -23,7 +23,7 @@ DEFAULTS = {
     "zone": {"name": "Zone-1", "dns1": "", "dns2": "", "internal_dns1": "", "vlan_range": "100-200", "guest_cidr": "10.1.1.0/24",
              "pod_name": "Pod-1", "pod_gateway": "", "pod_netmask": "255.255.255.0", "pod_start": "", "pod_end": "",
              "public_gateway": "", "public_netmask": "255.255.255.0", "public_start": "", "public_end": "", "public_vlan": "untagged",
-             "label_mgmt": "cloudbr0", "label_guest": "cloudbr0", "label_public": "cloudbr0"},
+             "label_mgmt": "cloudbr0", "label_guest": "cloudbr0", "label_public": "cloudbr0", "internal_net": False},
     "cluster": {"clusters": [{"name": "Cluster-1", "host_ids": []}], "primary_server": "", "primary_path": "/export/primary",
                 "secondary_server": "", "secondary_path": "/export/secondary", "kvm_auth": "key", "auto_bridge": True},
 }
@@ -149,6 +149,22 @@ def validate(step, d, full=None):
         pv = str(d.get("public_vlan", "untagged"))
         if pv != "untagged" and V.vlan(pv):
             e["public_vlan"] = V.vlan(pv) + " (or 'untagged')"
+        if d.get("internal_net"):
+            # pod + public networks live on an internal bridge of the (single) KVM host, which is their gateway
+            if not (d.get("label_mgmt") == d.get("label_guest") == d.get("label_public")):
+                e["label_mgmt"] = "with the internal network all three labels must name the same internal bridge (e.g. cloudbr1)"
+            elif d.get("label_mgmt") == INTERNAL_HOST_BRIDGE:
+                e["label_mgmt"] = f"{INTERNAL_HOST_BRIDGE} carries the host's own IP; name the internal bridge differently (e.g. cloudbr1)"
+            elif len(str(d.get("label_mgmt", ""))) > 12:
+                e["label_mgmt"] = "internal bridge name: at most 12 characters"
+            if "pod_gateway" not in e and "pod_netmask" not in e and "public_gateway" not in e and "public_netmask" not in e:
+                pn = ipaddress.ip_network(f"{d['pod_gateway']}/{d['pod_netmask']}", strict=False)
+                bn = ipaddress.ip_network(f"{d['public_gateway']}/{d['public_netmask']}", strict=False)
+                if pn.overlaps(bn):
+                    e["public_gateway"] = "with the internal network the pod and public networks must be different subnets"
+                hosts_in = [h["ip"] for h in db.q("SELECT ip FROM hosts") if ipaddress.ip_address(h["ip"]) in pn or ipaddress.ip_address(h["ip"]) in bn]
+                if hosts_in:
+                    e["pod_gateway"] = f"the internal pod/public subnets must not contain host addresses ({', '.join(hosts_in)})"
         if "pod_range" not in e and "public_range" not in e and "pod_gateway" not in e and "public_gateway" not in e \
                 and "pod_netmask" not in e and "public_netmask" not in e:
             a = (ipaddress.IPv4Address(d["pod_start"]), ipaddress.IPv4Address(d["pod_end"]))
@@ -182,6 +198,8 @@ def validate(step, d, full=None):
             err = V.abspath(d.get(f"{k}_path", ""))
             if err:
                 e[f"{k}_path"] = err
+        if full["zone"].get("internal_net") and len(set(all_ids)) != 1:
+            e["clusters"] = "the internal network (Zones & Pods) works with exactly one KVM host - it is the pod/public gateway"
         err = V.choice(d.get("kvm_auth", "key"), ["key", "password"], "KVM authentication")
         if err:
             e["kvm_auth"] = err
@@ -242,7 +260,28 @@ def extra_vars(s):
         "kvm_required_bridges": sorted({z.get(k) for k in ("label_mgmt", "label_guest", "label_public") if z.get(k)}),
         "nginx_hosts": "cs_mgmt", "zabbix_agent_hosts": "all", "cs_usage_hosts": "cs_mgmt[0]",
     }
+    ev.update(internal_net_vars(s, hosts))
     return ev
+
+
+INTERNAL_HOST_BRIDGE = "cloudbr0"
+
+
+def internal_net_vars(s, hosts):
+    """Zone option 'internal network': the KVM host gets an internal bridge that is the pod + public gateway, every other
+    host (and the master) a route to those subnets via the KVM host, and the NFS server exports to the pod subnet."""
+    z = s["zone"]
+    kvm_ids = sorted({i for c in s["cluster"]["clusters"] for i in c["host_ids"]})
+    if not z.get("internal_net") or not kvm_ids or kvm_ids[0] not in hosts:
+        return {}
+    pn = ipaddress.ip_network(f"{z['pod_gateway']}/{z['pod_netmask']}", strict=False)
+    bn = ipaddress.ip_network(f"{z['public_gateway']}/{z['public_netmask']}", strict=False)
+    kvm_ip = hosts[kvm_ids[0]]["ip"]
+    return {"kvm_bridge_name": INTERNAL_HOST_BRIDGE,
+            "kvm_internal_net": {"bridge": z["label_mgmt"], "addresses": [f"{z['pod_gateway']}/{pn.prefixlen}", f"{z['public_gateway']}/{bn.prefixlen}"],
+                                 "nat_cidrs": [str(pn), str(bn)]},
+            "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip}, {"to": str(bn), "via": kvm_ip}],
+            "nfs_extra_cidrs": [str(pn)]}
 
 
 def zone_spec(s, kvm_password=None):

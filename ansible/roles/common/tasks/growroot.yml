@@ -1,0 +1,33 @@
+---
+# common_grow_mount (default /): root on a plain partition (xfs/ext4) is grown with growpart + xfs_growfs/resize2fs; root on LVM: the PV partition is
+# grown, then pvresize + lvextend -r. Nothing happens when there is no free space after the partition.
+- name: Root device and filesystem
+  ansible.builtin.command: findmnt -no SOURCE,FSTYPE {{ common_grow_mount }}
+  register: gr_root
+  changed_when: false
+
+- name: Grow
+  ansible.builtin.shell: |
+    set -eu
+    mnt={{ common_grow_mount | quote }}; src=$(findmnt -no SOURCE "$mnt"); fs=$(findmnt -no FSTYPE "$mnt")
+    case "$fs" in xfs|ext4|ext3) ;; *) echo "SKIP: root filesystem $fs"; exit 0;; esac
+    lvm=""
+    if [ "$(lsblk -no TYPE "$src" | head -1)" = lvm ]; then lvm="$src"; part=$(pvs --noheadings -o pv_name -S vg_name="$(lvs --noheadings -o vg_name "$src" | tr -d ' ')" | head -1 | tr -d ' ')
+    else part="$src"; fi
+    [ -b "$part" ] || { echo "SKIP: $part is not a block device"; exit 0; }
+    pk=$(lsblk -no PKNAME "$part" | head -1); num=$(cat "/sys/class/block/$(basename "$(readlink -f "$part")")/partition" 2>/dev/null || true)
+    [ -n "$pk" ] && [ -n "$num" ] || { echo "SKIP: $part is not a partition"; exit 0; }
+    out=$(growpart "/dev/$pk" "$num" 2>&1) && rc=0 || rc=$?
+    if [ $rc -eq 1 ] && echo "$out" | grep -q NOCHANGE; then echo "UNCHANGED"; exit 0; fi
+    [ $rc -eq 0 ] || { echo "$out" >&2; exit $rc; }
+    if [ -n "$lvm" ]; then pvresize "$part"; lvextend -r -l +100%FREE "$lvm"
+    elif [ "$fs" = xfs ]; then xfs_growfs "$mnt"
+    else resize2fs "$src"; fi
+    echo "GROWN: $(df -h "$mnt" | tail -1)"
+  register: gr_out
+  changed_when: "'GROWN' in gr_out.stdout"
+  when: gr_root.stdout.split() | length == 2
+
+- name: Root filesystem
+  ansible.builtin.debug: {msg: "{{ inventory_hostname }}: {{ gr_out.stdout_lines | default([]) | join(' ') }}"}
+  when: gr_out.stdout is defined

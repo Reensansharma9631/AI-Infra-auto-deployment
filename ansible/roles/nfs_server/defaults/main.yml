@@ -4,3 +4,4 @@ nfs_exports:                    # directories created and exported; CloudStack u
   - {name: primary, path: /export/primary}
   - {name: secondary, path: /export/secondary}
 nfs_allowed_cidrs: []           # empty -> the /24 of this node's IP
+nfs_extra_cidrs: []             # added to the above (e.g. the CloudStack pod network the SSVM mounts from)
