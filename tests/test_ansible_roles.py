@@ -709,3 +709,71 @@ def test_kvm_role_leaves_libvirt_to_cloudstack_after_addhost():
     for n in ("libvirtd must listen on tcp (CloudStack requirement)", "libvirtd started with --listen",
               "Socket activation conflicts with --listen on Ubuntu - mask the sockets"):
         assert "kvm_cs_setup.rc != 0" in str(tasks[n]["when"]), n
+
+
+def _render_internal(host, peers, gw):
+    import jinja2
+    env = jinja2.Environment(trim_blocks=True, lstrip_blocks=False, undefined=jinja2.StrictUndefined)
+    env.filters["default"] = lambda v, d="", b=False: d if (v is None or isinstance(v, jinja2.Undefined) or (b and not v)) else v
+    tpl = env.from_string((ANS / "roles/kvm_host/templates/autoinfra-internal-net.service.j2").read_text())
+    net = {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24"], "nat_cidrs": ["10.200.0.0/24"], "nat_exempt": [p for p in peers if p != gw],
+           "gateway": gw, "peers": peers}
+    return tpl.render(kvm_internal_net=net, ansible_host=host)
+
+
+def test_internal_net_multi_host_render():
+    g, m = _render_internal("192.0.2.1", ["192.0.2.1", "192.0.2.2"], "192.0.2.1"), _render_internal("192.0.2.2", ["192.0.2.1", "192.0.2.2"], "192.0.2.1")
+    for t in (g, m):
+        assert "type vxlan id 4242 local" in t and "/usr/sbin/ip link set vxai0 master cloudbr1" in t and "ip link add dummyai0" not in t
+        assert "ExecStartPre=-/usr/sbin/ip link del dummyai0" in t        # a host that gained peers drops its dummy
+    assert "dst 192.0.2.2" in g and "dst 192.0.2.1" not in g and "dst 192.0.2.1" in m
+    assert "ip addr replace 10.200.0.1/24" in g and "MASQUERADE" in g
+    assert "ip addr replace" not in m and "MASQUERADE" not in m          # only the gateway owns addresses + NAT
+    assert re.match(r"^vx", "vxai0") and len("vxai0.4094") <= 15        # agent pattern ^vx, IFNAMSIZ
+
+
+@needs_root
+@pytest.mark.skipif(not shutil.which("iptables") or not shutil.which("bridge"), reason="iptables/iproute2 bridge missing")
+def test_internal_net_two_hosts_really_connect_over_vxlan(tmp_path):
+    """Two network namespaces = two KVM hosts on one LAN. Each runs its rendered unit (twice); a VM address on the member host's
+    bridge reaches the gateway over VXLAN, and a guest VLAN on the VXLAN member crosses hosts too."""
+    ns = {"a": "192.0.2.1", "b": "192.0.2.2"}
+    RESULTS = {}
+    sh = lambda n, c: subprocess.run(["ip", "netns", "exec", f"ai-{n}", "sh", "-c", c], capture_output=True, text=True)
+    try:
+        for n in ns:
+            subprocess.run(["ip", "netns", "add", f"ai-{n}"], check=True)
+        subprocess.run(["ip", "link", "add", "ai-va", "netns", "ai-a", "type", "veth", "peer", "name", "ai-vb", "netns", "ai-b"], check=True)
+        for n, ip in ns.items():
+            assert sh(n, f"ip link set lo up && ip addr add {ip}/24 dev ai-v{n} && ip link set ai-v{n} up").returncode == 0
+            unit = _render_internal(ip, list(ns.values()), ns["a"])
+            cmds = [l.split("=", 1)[1].lstrip("-") for l in unit.splitlines() if l.startswith(("ExecStartPre=", "ExecStart="))]
+            script = "\n".join(c if c.startswith("/bin/sh") or "del " in c else c for c in cmds)
+            for _ in range(2):                                                    # idempotent
+                for c in cmds:
+                    r = sh(n, c)
+                    assert r.returncode == 0 or " del " in c, (n, c, r.stderr)
+        assert sh("b", "ip addr add 10.200.0.50/24 dev cloudbr1").returncode == 0
+        r = sh("b", "ping -c 2 -W 2 10.200.0.1")
+        assert r.returncode == 0, r.stdout + r.stderr
+        # guest VLAN the way CloudStack builds it: <member>.<vlan> on each host
+        for n, last in (("a", 1), ("b", 2)):
+            assert sh(n, f"ip link add link vxai0 name vxai0.100 type vlan id 100 && ip addr add 10.99.0.{last}/24 dev vxai0.100 && ip link set vxai0.100 up").returncode == 0
+        r = sh("b", "ping -c 2 -W 2 10.99.0.1")
+        assert r.returncode == 0, r.stdout + r.stderr
+        out = sh("a", "bridge fdb show dev vxai0").stdout
+        assert out.count("dst 192.0.2.2") == 1, out                                # second run added no duplicate
+        # a "VM" behind a port of the member host's bridge (like a tap), MTU 1500, talking to the gateway on the other host
+        subprocess.run(["ip", "netns", "add", "ai-vm"], check=True)
+        subprocess.run(["ip", "link", "add", "ai-tap", "netns", "ai-b", "type", "veth", "peer", "name", "eth0", "netns", "ai-vm"], check=True)
+        assert sh("b", "ip link set ai-tap master cloudbr1 && ip link set ai-tap up").returncode == 0
+        assert sh("vm", "ip link set lo up && ip addr add 10.200.0.60/24 dev eth0 && ip link set eth0 up").returncode == 0
+        r = sh("vm", "ping -c 2 -W 2 10.200.0.1")
+        assert r.returncode == 0, r.stdout + r.stderr
+        # full-size frames from a VM: without DF they cross (the outer packet is fragmented on the 1500-byte LAN)
+        r = sh("vm", "ping -c 1 -W 2 -s 1472 -M dont 10.200.0.1")
+        RESULTS["vm_1500_no_df"] = r.returncode
+        assert r.returncode == 0, r.stdout + r.stderr
+    finally:
+        for n in list(ns) + ["vm"]:
+            subprocess.run(["ip", "netns", "del", f"ai-{n}"], capture_output=True)

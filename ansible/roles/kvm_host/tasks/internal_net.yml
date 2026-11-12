@@ -4,9 +4,17 @@
     that:
       - kvm_internal_net.bridge is match('^[A-Za-z0-9_.-]{1,12}$')
       - kvm_internal_net.bridge != kvm_bridge_name
-      - (kvm_internal_net.addresses | default([]) | length) > 0
-    fail_msg: "kvm_internal_net needs a bridge name (not {{ kvm_bridge_name }}) and at least one address"
+      - (kvm_internal_net.addresses | default([]) | length) > 0 or ansible_host != (kvm_internal_net.gateway | default(ansible_host))
+    fail_msg: "kvm_internal_net needs a bridge name (not {{ kvm_bridge_name }}) and, on the gateway host, at least one address"
     quiet: true
+
+- name: VXLAN between the KVM hosts - open UDP 4789 when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["4789/udp"]
+  when: (kvm_internal_net.peers | default([]) | length) > 1
 
 - name: IP forwarding (persistent)
   ansible.builtin.copy:

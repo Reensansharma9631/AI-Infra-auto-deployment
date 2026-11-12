@@ -62,7 +62,7 @@ BAD = [
     ("management", {"hostname": "bad host"}, "hostname"), ("management", {"netmask": "255.0.255.0"}, "netmask"),
     ("management", {"timezone": "kolkata"}, "timezone"), ("management", {"network": "10.0.0.1/24"}, "network"),
     ("management", {"gateway": "10.9.9.1"}, "gateway"), ("management", {"gateway": "x"}, "gateway"),
-    ("management", {"vip": ""}, "vip"), ("management", {"vip": "10.0.0.10"}, "vip"), ("management", {"vip": "bad"}, "vip"),
+("management", {"vip": "10.0.0.10"}, "vip"), ("management", {"vip": "bad"}, "vip"),
     ("management", {"ntp": "bad host!"}, "ntp"),
     ("database", {"strategy": "galera2"}, "strategy"), ("database", {"strategy": "pxc", "host_ids": [3, 4]}, "host_ids"),
     ("database", {"strategy": "single"}, "host_ids"), ("database", {"vip": ""}, "vip"), ("database", {"vip": "10.0.0.41"}, "vip"),
@@ -529,11 +529,16 @@ def test_internal_net_zone_validation(operator, lab, over, field):
     assert r.status_code == 400 and field in r.get_json()["fields"], r.get_json()
 
 
-def test_internal_net_needs_exactly_one_kvm_host(operator, lab):
-    o = _single(lab)
-    fill(operator, lab, **o)
-    r = operator.post("/api/cs/wizard/cluster", json={"clusters": [{"name": "Cluster-1", "host_ids": [lab["kvm1"], lab["kvm2"]]}]})
-    assert r.status_code == 400 and "exactly one KVM host" in r.get_json()["fields"]["clusters"]
+def test_internal_net_two_kvm_hosts_gateway_and_vxlan_peers(app, operator, lab):
+    """Several KVM hosts: the first is the gateway, all are VXLAN peers of the internal bridge."""
+    fill(operator, lab, **_single(lab, kvm=("kvm1", "kvm2")))
+    from autoinfra import cloudstack
+    with app.app_context():
+        v = cloudstack.extra_vars(cloudstack.state())
+    n = v["kvm_internal_net"]
+    assert n["gateway"] == "10.0.1.21" and n["peers"] == ["10.0.1.21", "10.0.1.22"]
+    assert v["autoinfra_static_routes"][0] == {"to": "10.200.0.0/24", "via": "10.0.1.21"}
+    assert "10.0.1.22" in n["nat_exempt"] and "10.0.1.21" not in n["nat_exempt"]
 
 
 def test_internal_net_vars_and_zone_spec(app, operator, lab):
@@ -544,7 +549,8 @@ def test_internal_net_vars_and_zone_spec(app, operator, lab):
         v, spec = cloudstack.extra_vars(s), cloudstack.zone_spec(s)
     assert v["kvm_bridge_name"] == "cloudbr0" and v["kvm_required_bridges"] == ["cloudbr1"]
     assert v["kvm_internal_net"] == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
-                                     "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"], "nat_exempt": ["10.0.0.10", "10.0.0.31"]}
+                                     "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"], "nat_exempt": ["10.0.0.10", "10.0.0.31"],
+                                     "gateway": "10.0.1.21", "peers": ["10.0.1.21"]}
     assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21"}, {"to": "10.201.0.0/24", "via": "10.0.1.21"}]
     assert v["nfs_extra_cidrs"] == ["10.200.0.0/24"]
     assert spec["kvm_labels"] == {"management": "cloudbr1", "guest": "cloudbr1", "public": "cloudbr1"}
@@ -639,3 +645,28 @@ def test_slow_sync_commands_get_a_long_read_timeout(monkeypatch):
     for c in ("listZones", "addHost", "createStoragePool", "addImageStore"):
         cs._call({"command": c})
     assert seen["listZones"] == 30 and seen["addHost"] >= 1800 and seen["createStoragePool"] >= 900 and seen["addImageStore"] >= 900
+
+
+
+# ---------------------------------------------------------------- 2-3 management servers without a VIP (agent LB)
+def test_two_mgmt_without_vip_uses_agent_lb(app, operator, lab, cs_mock):
+    o = _single(lab)
+    o["management"] = {"host_ids": [lab["mgmt1"], lab["mgmt2"]], "vip": "", "lb_host_ids": []}
+    fill(operator, lab, **o)
+    from autoinfra import cloudstack, db
+    with app.app_context():
+        s = cloudstack.state()
+        assert not cloudstack.needs_lb(s) and cloudstack.needs_host_setting(s) and "cs_lb" not in cloudstack.groups(s)
+        assert cloudstack.mgmt_host_setting(s) == "10.0.0.10,10.0.0.11" and cloudstack.zone_spec(s)["management_vip"] == "10.0.0.10,10.0.0.11"
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"})
+    j = wait_job(operator, r.get_json()["job_id"], 120)
+    log = operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert j["state"] == "success", log
+    pbs = [c["playbook"] for c in ansible_calls(app)]
+    assert "21-cloudstack-lb.yml" not in pbs and pbs[-1] == "27-cloudstack-mgmt-restart.yml"
+    assert cs_mock.config["host"] == "10.0.0.10,10.0.0.11"
+    names = [st["name"] for st in j["steps"]]
+    assert names.index("Point CloudStack at the management VIP / servers (global setting 'host')") < names.index(
+        "Restart management servers (apply the 'host' setting)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")

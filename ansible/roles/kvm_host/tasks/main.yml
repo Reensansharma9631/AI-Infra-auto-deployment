@@ -70,13 +70,14 @@
     mode: "0644"
   when: kvm_nested | default(false) | bool
 
-- name: Management server SSH key for addHost (no root password needed)
-  when: kvm_mgmt_pubkey | default('') | length > 0
+- name: Management servers' SSH keys for addHost (no root password needed)
+  when: (kvm_mgmt_pubkeys | default([])) | length > 0 or (kvm_mgmt_pubkey | default('')) | length > 0
   block:
     - name: /root/.ssh
       ansible.builtin.file: {path: /root/.ssh, state: directory, mode: "0700"}
     - name: authorized_keys entry
-      ansible.builtin.lineinfile: {path: /root/.ssh/authorized_keys, line: "{{ kvm_mgmt_pubkey }}", create: true, mode: "0600"}
+      ansible.builtin.lineinfile: {path: /root/.ssh/authorized_keys, line: "{{ item }}", create: true, mode: "0600"}
+      loop: "{{ ((kvm_mgmt_pubkeys | default([])) + ([kvm_mgmt_pubkey] if (kvm_mgmt_pubkey | default('')) else [])) | unique }}"
 
 - name: libvirtd running
   ansible.builtin.service: {name: libvirtd, state: started, enabled: true}

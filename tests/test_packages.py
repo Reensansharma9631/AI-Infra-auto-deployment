@@ -310,7 +310,7 @@ def test_required_lists(operator, product, family):
 
 def test_required_becomes_ready(app, operator, tmp_path):
     debs = [make_deb(tmp_path, n) for n in ("qemu-system-x86", "qemu-utils", "ovmf", "cpu-checker", "libvirt-daemon-system", "libvirt-clients", "virtinst",
-                                             "bridge-utils", "vlan", "openvswitch-switch")]
+                                             "bridge-utils", "vlan", "openvswitch-switch", "iptables")]
     z = zip_of(tmp_path, {f"d/{p.name}": p for p in debs})
     uid, jid = upload(operator, z, "kvm")
     wait_job(operator, jid)

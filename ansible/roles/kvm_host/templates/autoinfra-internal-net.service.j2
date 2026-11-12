@@ -1,6 +1,11 @@
-# managed by AutoInfra - internal CloudStack bridge {{ kvm_internal_net.bridge }} (pod/public gateway for system VMs)
-# The bridge has no physical NIC; a dummy device gives CloudStack a parent for guest VLAN interfaces (dummyai0.<vlan>).
-# Its name must match the KVM agent's interface patterns (^dummy, ^eth, ^ens ...; 4.22) or the agent does not report the bridge.
+# managed by AutoInfra - internal CloudStack bridge {{ kvm_internal_net.bridge }} (pod/public networks for system VMs)
+{% set peers = kvm_internal_net.peers | default([]) %}
+{% set gw = kvm_internal_net.gateway | default(ansible_host) %}
+{% set member = 'vxai0' if peers | length > 1 else 'dummyai0' %}
+# Member device: one KVM host -> a dummy NIC; several -> a unicast VXLAN (UDP 4789) to the other KVM hosts, so system VMs,
+# routers and guests on every host share the networks. CloudStack builds guest VLANs on the member (<member>.<vlan>), and
+# its name must match the KVM agent's interface patterns (^dummy, ^vx, ^eth ...; 4.22) or the bridge is not reported.
+# This host is {{ 'the gateway (' ~ (kvm_internal_net.addresses | default([]) | join(', ')) ~ ')' if ansible_host == gw else 'a member; gateway: ' ~ gw }}.
 [Unit]
 Description=AutoInfra internal network {{ kvm_internal_net.bridge }}
 Before=libvirtd.service cloudstack-agent.service
@@ -10,15 +15,28 @@ Wants=network-pre.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# earlier AutoInfra versions named the device aidummy0, which the agent ignores
+# earlier AutoInfra versions: aidummy0 (ignored by the agent); a dummy left over when the host gained VXLAN peers
 ExecStartPre=-/usr/sbin/ip link del aidummy0
+{% if member != 'dummyai0' %}
+ExecStartPre=-/usr/sbin/ip link del dummyai0
+{% endif %}
 ExecStart=/usr/sbin/sysctl -q -w net.ipv4.ip_forward=1
+{% if member == 'dummyai0' %}
 ExecStart=/bin/sh -c 'ip link show dummyai0 >/dev/null 2>&1 || ip link add dummyai0 type dummy'
+{% else %}
+# no 'dev': the MTU may stay 1500 (outer packets are fragmented by the host instead of guests seeing a smaller MTU)
+ExecStart=/bin/sh -c 'ip link show vxai0 >/dev/null 2>&1 || ip link add vxai0 type vxlan id {{ kvm_internal_net.vni | default(4242) }} local {{ ansible_host }} dstport 4789 nolearning'
+ExecStart=/usr/sbin/ip link set vxai0 mtu 1500
+{% for p in peers if p != ansible_host %}
+ExecStart=/bin/sh -c 'bridge fdb show dev vxai0 | grep -q "dst {{ p }} " || bridge fdb append 00:00:00:00:00:00 dev vxai0 dst {{ p }}'
+{% endfor %}
+{% endif %}
 ExecStart=/bin/sh -c 'ip link show {{ kvm_internal_net.bridge }} >/dev/null 2>&1 || ip link add {{ kvm_internal_net.bridge }} type bridge'
-ExecStart=/usr/sbin/ip link set dummyai0 master {{ kvm_internal_net.bridge }}
-ExecStart=/usr/sbin/ip link set dummyai0 up
+ExecStart=/usr/sbin/ip link set {{ member }} master {{ kvm_internal_net.bridge }}
+ExecStart=/usr/sbin/ip link set {{ member }} up
 ExecStart=/usr/sbin/ip link set {{ kvm_internal_net.bridge }} up
-{% for a in kvm_internal_net.addresses %}
+{% if ansible_host == gw %}
+{% for a in kvm_internal_net.addresses | default([]) %}
 ExecStart=/usr/sbin/ip addr replace {{ a }} dev {{ kvm_internal_net.bridge }}
 {% endfor %}
 {% for c in kvm_internal_net.nat_cidrs | default([]) %}
@@ -29,6 +47,7 @@ ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} -d {{ d }} -j RE
 # hosts without a route back (the master, the LAN gateway) see this KVM host's IP
 ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE'
 {% endfor %}
+{% endif %}
 
 [Install]
 WantedBy=multi-user.target

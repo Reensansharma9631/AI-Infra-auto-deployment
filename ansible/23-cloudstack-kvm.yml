@@ -1,8 +1,8 @@
 ---
 # KVM hosts for CloudStack (Ubuntu or RHEL family). The management server's SSH key is installed so that
 # CloudStack can add the hosts without a root password.
-- name: Management server public key (exists after the first start of cloudstack-management)
-  hosts: cs_mgmt[0]
+- name: Management servers' public keys (exist after the first start of cloudstack-management; every server can run addHost)
+  hosts: cs_mgmt
   become: true
   gather_facts: false
   tasks:
@@ -27,5 +27,5 @@
   become: true
   gather_facts: true
   vars:
-    kvm_mgmt_pubkey: "{{ hostvars[groups['cs_mgmt'][0]].cs_mgmt_pubkey | default('') if (groups['cs_mgmt'] | default([])) else '' }}"
+    kvm_mgmt_pubkeys: "{{ groups['cs_mgmt'] | default([]) | map('extract', hostvars, 'cs_mgmt_pubkey') | select('defined') | select | unique | list }}"
   roles: [kvm_host]

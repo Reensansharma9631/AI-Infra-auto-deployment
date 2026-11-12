@@ -71,9 +71,8 @@ def validate(step, d, full=None):
                 err = V.ip_in(d["gateway"], d["network"])
                 if err:
                     e["gateway"] = err
-        if len(ids) > 1 and not d.get("vip"):
-            e["vip"] = "a VIP is required with 2-3 management servers (HAProxy + keepalived)"
-        if len(ids) > 1 or d.get("vip"):
+        # 2-3 servers without a VIP: CloudStack's own agent load balancing (global setting host = ip1,ip2,...)
+        if d.get("vip"):
             # HAProxy binds VIP:8080/8250; CloudStack itself listens on 0.0.0.0:8080/8250 -> they cannot share a host
             lb = d.get("lb_host_ids", [])
             err = _hosts_exist(lb, "load balancer hosts")
@@ -198,8 +197,6 @@ def validate(step, d, full=None):
             err = V.abspath(d.get(f"{k}_path", ""))
             if err:
                 e[f"{k}_path"] = err
-        if full["zone"].get("internal_net") and len(set(all_ids)) != 1:
-            e["clusters"] = "the internal network (Zones & Pods) works with exactly one KVM host - it is the pod/public gateway"
         err = V.choice(d.get("kvm_auth", "key"), ["key", "password"], "KVM authentication")
         if err:
             e["kvm_auth"] = err
@@ -286,7 +283,9 @@ def internal_net_vars(s, hosts):
                                  "nat_cidrs": [str(pn), str(bn)],
                                  # hosts that get a route back must see the system VMs' real addresses: CloudStack checks
                                  # the agent certificate against the client IP ("Certificate ownership verification failed")
-                                 "nat_exempt": sorted({h["ip"] for hid, h in hosts.items() if hid in _wizard_host_ids(s) and h["ip"] != kvm_ip})},
+                                 "nat_exempt": sorted({h["ip"] for hid, h in hosts.items() if hid in _wizard_host_ids(s) and h["ip"] != kvm_ip}),
+                                 # first KVM host = gateway; the others join the bridge over VXLAN
+                                 "gateway": kvm_ip, "peers": [hosts[i]["ip"] for i in kvm_ids if i in hosts]},
             "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip}, {"to": str(bn), "via": kvm_ip}],
             "nfs_extra_cidrs": [str(pn)]}
 
@@ -306,11 +305,25 @@ def zone_spec(s, kvm_password=None):
                        "vlan": z.get("public_vlan") or "untagged"},
             "kvm_labels": {"management": z["label_mgmt"], "guest": z["label_guest"], "public": z["label_public"]},
             "clusters": clusters, "primary_nfs": f"{c['primary_server']}{c['primary_path']}",
-            "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": extra_vars(s)["cs_mgmt_vip"]}
+            "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": mgmt_host_setting(s)}
 
 
 def needs_lb(s):
-    return len(s["management"]["host_ids"]) > 1 or bool(s["management"].get("vip"))
+    """HAProxy + keepalived only in front of a VIP."""
+    return bool(s["management"].get("vip"))
+
+
+def mgmt_host_setting(s):
+    """CloudStack global setting 'host' (what agents and system VMs connect to): the VIP, or the list of management
+    servers (agent-side load balancing / failover, indirect.agent.lb.algorithm)."""
+    hosts = {h["id"]: h["ip"] for h in db.q("SELECT id, ip FROM hosts")}
+    ips = [hosts[i] for i in s["management"]["host_ids"] if i in hosts]
+    return s["management"].get("vip") or ",".join(ips)
+
+
+def needs_host_setting(s):
+    """The setting must be in place BEFORE KVM hosts are added and the servers restarted afterwards."""
+    return needs_lb(s) or len(s["management"]["host_ids"]) > 1
 
 
 def groups(s):
@@ -363,7 +376,7 @@ def _api_session(log, url, admin_user, admin_password, wait=None):
 
 @jobs.register("cs_api_prepare")
 def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
-    url = url or db.get_setting("cs_api_url") or f"http://{vip}:8080"
+    url = url or db.get_setting("cs_api_url") or f"http://{vip.split(',')[0]}:8080"
     cs = _api_session(log, url, admin_user, admin_password)
     cs.run("updateConfiguration", name="host", value=vip)
     log(f"[api] global setting host = {vip} (management servers are restarted next)")
@@ -372,7 +385,7 @@ def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
 
 @jobs.register("cs_zone_bootstrap")
 def cs_zone_bootstrap(log, spec, url=None, admin_user="admin", admin_password=None):
-    url = url or db.get_setting("cs_api_url") or f"http://{spec['management_vip']}:8080"
+    url = url or db.get_setting("cs_api_url") or f"http://{spec['management_vip'].split(',')[0]}:8080"
     cs = _api_session(log, url, admin_user, admin_password)
     csapi.bootstrap_zone(cs, spec, log)
     return True
@@ -464,13 +477,13 @@ def deploy():
     used = {i for ids in grp.values() for i in ids}
     hosts = [h for h in db.q("SELECT * FROM hosts") if h["id"] in used]      # 'hosts: all' plays must not touch unrelated machines
     hosts = [dict(h, roles="") for h in hosts]                               # groups come from the wizard only, not from host roles
-    pbs = plan(s) + ([("27-cloudstack-mgmt-restart.yml", "Restart management servers (apply the 'host' setting)")] if needs_lb(s) else [])
+    pbs = plan(s) + ([("27-cloudstack-mgmt-restart.yml", "Restart management servers (apply the 'host' setting)")] if needs_host_setting(s) else [])
     steps, wd = inventory.playbook_steps(pbs, hosts, extra_vars=extra_vars(s), extra_groups=grp)
     kvm_pw = j.get("kvm_password") if s["cluster"].get("kvm_auth") == "password" else None
-    if needs_lb(s):          # agents and system VMs must talk to the VIP: set it BEFORE hosts are added, then restart
+    if needs_host_setting(s):   # agents/system VMs must know the VIP or every server: set it BEFORE hosts are added, then restart
         restart = steps.pop()
-        steps.append({"name": "Point CloudStack at the management VIP (global setting 'host')", "fn": "cs_api_prepare",
-                      "args": {"vip": extra_vars(s)["cs_mgmt_vip"], "admin_password": j.get("admin_password")}})
+        steps.append({"name": "Point CloudStack at the management VIP / servers (global setting 'host')", "fn": "cs_api_prepare",
+                      "args": {"vip": mgmt_host_setting(s), "admin_password": j.get("admin_password")}})
         steps.append(restart)
     steps.append({"name": "Configure zones, pods, clusters, hosts and storage (CloudStack API)", "fn": "cs_zone_bootstrap",
                   "args": {"spec": zone_spec(s, kvm_pw), "admin_password": j.get("admin_password")}})
