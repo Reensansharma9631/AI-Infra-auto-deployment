@@ -267,6 +267,10 @@ def extra_vars(s):
 INTERNAL_HOST_BRIDGE = "cloudbr0"
 
 
+def _wizard_host_ids(s):
+    return {i for ids in groups(s).values() for i in ids}
+
+
 def internal_net_vars(s, hosts):
     """Zone option 'internal network': the KVM host gets an internal bridge that is the pod + public gateway, every other
     host (and the master) a route to those subnets via the KVM host, and the NFS server exports to the pod subnet."""
@@ -279,7 +283,10 @@ def internal_net_vars(s, hosts):
     kvm_ip = hosts[kvm_ids[0]]["ip"]
     return {"kvm_bridge_name": INTERNAL_HOST_BRIDGE,
             "kvm_internal_net": {"bridge": z["label_mgmt"], "addresses": [f"{z['pod_gateway']}/{pn.prefixlen}", f"{z['public_gateway']}/{bn.prefixlen}"],
-                                 "nat_cidrs": [str(pn), str(bn)]},
+                                 "nat_cidrs": [str(pn), str(bn)],
+                                 # hosts that get a route back must see the system VMs' real addresses: CloudStack checks
+                                 # the agent certificate against the client IP ("Certificate ownership verification failed")
+                                 "nat_exempt": sorted({h["ip"] for hid, h in hosts.items() if hid in _wizard_host_ids(s) and h["ip"] != kvm_ip})},
             "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip}, {"to": str(bn), "via": kvm_ip}],
             "nfs_extra_cidrs": [str(pn)]}
 

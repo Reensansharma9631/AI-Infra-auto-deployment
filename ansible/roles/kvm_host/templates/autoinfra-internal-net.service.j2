@@ -22,6 +22,10 @@ ExecStart=/usr/sbin/ip link set {{ kvm_internal_net.bridge }} up
 ExecStart=/usr/sbin/ip addr replace {{ a }} dev {{ kvm_internal_net.bridge }}
 {% endfor %}
 {% for c in kvm_internal_net.nat_cidrs | default([]) %}
+{% for d in kvm_internal_net.nat_exempt | default([]) %}
+# {{ d }} has a route back: no NAT (CloudStack verifies the system VM certificate against the client address)
+ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} -d {{ d }} -j RETURN 2>/dev/null || iptables -t nat -I POSTROUTING -s {{ c }} -d {{ d }} -j RETURN'
+{% endfor %}
 # hosts without a route back (the master, the LAN gateway) see this KVM host's IP
 ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE'
 {% endfor %}

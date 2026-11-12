@@ -21,7 +21,8 @@ SAMPLE_VARS = {"db_vip": "10.0.0.40", "db_dbha_password": "x" * 20, "db_acs_admi
                "cs_mgmt_vrrp_pass": "pass1234", "master_ip": "10.0.0.5", "ntp_server": "", "airgap_repo_base": "http://10.0.0.5:8081/repo",
                "kvm_bridge_port": "eno1", "kvm_gateway": "10.0.1.1", "kvm_prefix": 24, "primary_out": "", "db_ips": ["10.0.0.41", "10.0.0.42", "10.0.0.43"],
                "nfs_allowed": ["10.0.0.0/24"], "rabbitmq_password": "r" * 20, "rabbitmq_cookie": "c" * 32, "db_client_ips": ["10.0.0.10"],
-               "kvm_internal_net": {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"], "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"]},
+               "kvm_internal_net": {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"], "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"],
+                                    "nat_exempt": ["10.0.0.41", "10.0.0.42"]},
                "autoinfra_static_routes": [{"to": "10.200.0.0/24", "via": "10.0.0.43"}, {"to": "10.201.0.0/24", "via": "10.0.0.43"},
                                            {"to": "10.9.9.0/24", "via": "10.0.0.41"}]}
 
@@ -620,6 +621,9 @@ def test_internal_net_unit(rendered, fam):
     assert any("ip link add dummyai0 type dummy" in c for c in ex) and any("ip link add cloudbr1 type bridge" in c for c in ex)
     assert "/usr/sbin/ip addr replace 10.200.0.1/24 dev cloudbr1" in ex and "/usr/sbin/ip addr replace 10.201.0.1/24 dev cloudbr1" in ex
     assert sum("-s 10.20" in c and "! -o cloudbr1 -j MASQUERADE" in c for c in ex) == 2
+    ret = [i for i, c in enumerate(ex) if "-j RETURN" in c]
+    assert len(ret) == 4          # inserted with -I: at runtime they precede MASQUERADE (checked for real in the netns test)
+    assert any("-s 10.200.0.0/24 -d 10.0.0.41 -j RETURN" in c and "-I POSTROUTING" in c for c in ex)
     assert "Before=libvirtd.service cloudstack-agent.service" in t
     # VLAN devices CloudStack creates on the dummy parent must fit IFNAMSIZ (15): dummyai0.4094
     assert len("dummyai0.4094") <= 15
@@ -664,7 +668,9 @@ def test_internal_net_unit_really_builds_the_network(rendered, tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     out = r.stdout
     assert "10.200.0.1/24" in out and "10.201.0.1/24" in out and "master cloudbr1" in out and "VLAN-OK" in out
-    assert out.count("MASQUERADE") == 2, out          # second run added nothing
+    assert out.count("MASQUERADE") == 2 and out.count("-j RETURN") == 4, out     # second run added nothing
+    rules = [l for l in out.splitlines() if l.startswith("-A POSTROUTING")]
+    assert all("RETURN" in l for l in rules[:4]) and all("MASQUERADE" in l for l in rules[4:]), rules   # exemptions first
     assert out.strip().splitlines()[-2] == "1"
 
 
@@ -692,3 +698,14 @@ def test_growroot_really_grows_xfs(tmp_path):
     finally:
         subprocess.run(["umount", str(mnt)])
         subprocess.run(["losetup", "-d", loop])
+
+
+def test_kvm_role_leaves_libvirt_to_cloudstack_after_addhost():
+    """cloudstack-setup-agent (run by addHost) owns libvirtd.conf/listen args afterwards and may enable TLS; a re-run of the
+    role must not rewrite them (real lab: a re-run removed listen_tls and restarted libvirtd)."""
+    tasks = {t["name"]: t for t in yaml.safe_load((ANS / "roles/kvm_host/tasks/main.yml").read_text())}
+    probe = next(t for n, t in tasks.items() if n.startswith("Already set up by CloudStack"))
+    assert "guid=" in probe["ansible.builtin.command"] and probe["failed_when"] is False and probe["register"] == "kvm_cs_setup"
+    for n in ("libvirtd must listen on tcp (CloudStack requirement)", "libvirtd started with --listen",
+              "Socket activation conflicts with --listen on Ubuntu - mask the sockets"):
+        assert "kvm_cs_setup.rc != 0" in str(tasks[n]["when"]), n

@@ -544,7 +544,7 @@ def test_internal_net_vars_and_zone_spec(app, operator, lab):
         v, spec = cloudstack.extra_vars(s), cloudstack.zone_spec(s)
     assert v["kvm_bridge_name"] == "cloudbr0" and v["kvm_required_bridges"] == ["cloudbr1"]
     assert v["kvm_internal_net"] == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
-                                     "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"]}
+                                     "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"], "nat_exempt": ["10.0.0.10", "10.0.0.31"]}
     assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21"}, {"to": "10.201.0.0/24", "via": "10.0.1.21"}]
     assert v["nfs_extra_cidrs"] == ["10.200.0.0/24"]
     assert spec["kvm_labels"] == {"management": "cloudbr1", "guest": "cloudbr1", "public": "cloudbr1"}

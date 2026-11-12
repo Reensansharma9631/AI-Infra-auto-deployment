@@ -22,6 +22,7 @@
     - name: apt update
       ansible.builtin.apt: {update_cache: true}
       register: apt_up
+      changed_when: false          # refreshing the index changes nothing on the node (keeps re-runs at changed=0)
       retries: 3
       delay: 5
       until: apt_up is succeeded

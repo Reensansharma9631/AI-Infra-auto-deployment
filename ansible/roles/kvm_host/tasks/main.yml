@@ -23,14 +23,22 @@
     msg: "{{ inventory_hostname }} has no /dev/kvm - VMs would be emulated (very slow). Enable VT-x/nested virtualisation."
   when: not kvm_dev.stat.exists
 
+- name: Already set up by CloudStack? (from then on cloudstack-setup-agent owns libvirt's listen/TLS config)
+  ansible.builtin.command: grep -q '^guid=' /etc/cloudstack/agent/agent.properties
+  register: kvm_cs_setup
+  changed_when: false
+  failed_when: false
+
+# Before addHost libvirt must listen for CloudStack; afterwards cloudstack-setup-agent may have switched it to TLS
+# (listen_tls=1, certificates in /etc/pki) - rewriting the file on a re-run silently removed that (seen on 4.22.1.1).
 - name: libvirtd must listen on tcp (CloudStack requirement)
   ansible.builtin.template: {src: libvirtd.conf.j2, dest: /etc/libvirt/libvirtd.conf, mode: "0644"}
-  when: kvm_libvirt_tcp
+  when: kvm_libvirt_tcp and kvm_cs_setup.rc != 0
   notify: restart libvirtd
 
 - name: libvirtd started with --listen
   ansible.builtin.template: {src: agent-libvirt-default.j2, dest: "{{ libvirt_defaults_file }}", mode: "0644"}
-  when: kvm_libvirt_tcp
+  when: kvm_libvirt_tcp and kvm_cs_setup.rc != 0
   notify: restart libvirtd
 
 - name: Socket activation conflicts with --listen on Ubuntu - mask the sockets
@@ -39,7 +47,7 @@
     masked: true
     state: stopped
   loop: [libvirtd.socket, libvirtd-ro.socket, libvirtd-admin.socket, libvirtd-tls.socket, libvirtd-tcp.socket]
-  when: kvm_libvirt_tcp and (autoinfra_services | default(true) | bool)
+  when: kvm_libvirt_tcp and (autoinfra_services | default(true) | bool) and kvm_cs_setup.rc != 0
   notify: restart libvirtd
   failed_when: false
 
