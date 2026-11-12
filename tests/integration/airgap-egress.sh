@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Simulate a real air gap on lab nodes: block every outbound connection that leaves the allowed networks, LOG each attempt.
 # Not persistent (a reboot or 'off' removes it). Run ON the node as root:
-#   sudo bash airgap-egress.sh on  "172.27.15.0/24 10.200.0.0/23 10.1.0.0/16"
+#   sudo bash airgap-egress.sh on  "172.27.15.0/24 10.200.0.0/24 10.201.0.0/24 10.1.0.0/16"
 #   sudo bash airgap-egress.sh status        # rule counters + number of blocked attempts logged
 #   sudo bash airgap-egress.sh off
 # Applies to the node itself (OUTPUT) and to traffic it routes for system VMs / guests (FORWARD, routed only).

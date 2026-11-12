@@ -32,6 +32,11 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - Phase 4 log review: every ERROR/WARN type in management-server.log and agent.log classified; the one real air-gap
   issue (internet sample template) fixed; the rest are documented as harmless (FIXES.md).
 
+- **Deployment and guest path with the nodes cut off from the internet** (tests/integration/airgap-egress.sh on .239/.240/.241:
+  every connection outside 172.27.15.0/24 + 10.200/10.201 + guest 10.1.0.0/16 rejected and logged). Full deployment job 33:
+  success, 0 changed; smoke test **PASS 9/9** (VM on nfs-01 this time, router on nfs-01). Blocked attempts seen: only the
+  nodes' resolver asking 8.8.8.8 (5 lookups) - no package, image or template traffic.
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -40,8 +45,6 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - OpenStack wizard / Kolla config generation; Zabbix, MongoDB, PostgreSQL, Oracle, Ollama roles (rendered only).
 
 ## NOT VERIFIED
-- **Deployment with outbound internet blocked on the nodes** (goal 3) - needs your OK to add a temporary egress block.
-  Today the nodes still have internet and DNS 8.8.8.8; their apt uses only the master, but nothing else is proven.
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
 - DNS service on the master for the zone (zone DNS points at the master, which has no DNS server; system VMs work, names don't resolve).
 - The master's own route to the internal subnets (console proxy / public IPs from the master or your desktop).
