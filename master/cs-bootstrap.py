@@ -60,6 +60,11 @@ class CS:
         return items[0] if items else None
 
 
+ELEMENTS = {"VirtualRouter": ("listVirtualRouterElements", "configureVirtualRouterElement"),
+            "VpcVirtualRouter": ("listVirtualRouterElements", "configureVirtualRouterElement"),
+            "InternalLbVm": ("listInternalLoadBalancerElements", "configureInternalLoadBalancerElement")}
+
+
 def main(spec):
     cs = CS(spec["mgmt_url"], verbose=spec.get("verbose", False)); cs.login("admin", spec["admin_password"])
     z, pod, pub, lab = spec["zone"], spec["pod"], spec["public"], spec.get("kvm_labels", {})
@@ -80,7 +85,13 @@ def main(spec):
         cs.run("updatePhysicalNetwork", id=pn["id"], state="Enabled"); say("physical network + traffic types enabled")
     for prov in ("VirtualRouter", "VpcVirtualRouter", "InternalLbVm"):
         sp = cs.find("listNetworkServiceProviders", "networkserviceprovider", physicalnetworkid=pn["id"], name=prov)
-        if sp and sp["state"] != "Enabled": cs.run("updateNetworkServiceProvider", id=sp["id"], state="Enabled"); say(f"provider {prov} enabled")
+        if sp and sp["state"] != "Enabled":
+            # the provider's element must be enabled first (CloudStack 4.22: "Provider is not ready", errorcode 530)
+            lst, conf = ELEMENTS[prov]
+            els = next((v for v in cs.run(lst, nspid=sp["id"]).values() if isinstance(v, list)), [])
+            for el in els:
+                if str(el.get("enabled")).lower() != "true": cs.run(conf, id=el["id"], enabled="true"); say(f"{prov} element enabled")
+            cs.run("updateNetworkServiceProvider", id=sp["id"], state="Enabled"); say(f"provider {prov} enabled")
 
     p = cs.find("listPods", "pod", zoneid=zid, name=pod["name"])
     if not p:

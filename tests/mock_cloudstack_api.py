@@ -14,7 +14,7 @@ REQUIRED = {L(k): v for k, v in {
     "addHost": ["zoneid", "podid", "clusterid", "hypervisor", "username", "url"],
     "createStoragePool": ["zoneid", "name", "url"], "addImageStore": ["zoneid", "name", "provider", "url"],
     "updateConfiguration": ["name", "value"], "updateZone": ["id"], "listNetworkServiceProviders": ["physicalnetworkid"]}.items()}
-ASYNC = {L(c) for c in ("createPhysicalNetwork", "addTrafficType", "updatePhysicalNetwork", "updateNetworkServiceProvider",
+ASYNC = {L(c) for c in ("configureVirtualRouterElement", "configureInternalLoadBalancerElement", "createPhysicalNetwork", "addTrafficType", "updatePhysicalNetwork", "updateNetworkServiceProvider",
                          "prepareHostForMaintenance", "cancelHostMaintenance", "startSystemVm", "stopSystemVm", "rebootSystemVm",
                          "destroySystemVm", "enableStorageMaintenance", "cancelStorageMaintenance", "deleteHost",
                          "startVirtualMachine", "stopVirtualMachine", "rebootVirtualMachine")}
@@ -43,7 +43,7 @@ ACTIONS_MOCK = {"updatepod": ("pods", "allocationstate", "$state"), "updateclust
 class State:
     def __init__(self):
         for n in ("zones", "pns", "providers", "pods", "vlans", "clusters", "hosts", "pools", "stores", "config", "jobs", "sessions", "traffic",
-                  "offerings", "systemvms", "templates", "vms", "volumes", "networks", "routers", "ips"):
+                  "offerings", "systemvms", "templates", "vms", "volumes", "networks", "routers", "ips", "elements"):
             setattr(self, n, {})
         self.api_key, self.secret = uuid.uuid4().hex, uuid.uuid4().hex
         self.key_rotations = 0
@@ -140,6 +140,7 @@ def make_server(S, port=0):
             p = {"id": nid(), "name": q["name"], "zoneid": q["zoneid"], "state": "Disabled"}; S.pns[p["id"]] = p
             for n in ("VirtualRouter", "VpcVirtualRouter", "InternalLbVm"):
                 sp = {"id": nid(), "name": n, "physicalnetworkid": p["id"], "state": "Disabled"}; S.providers[sp["id"]] = sp
+                el = {"id": nid(), "nspid": sp["id"], "enabled": False, "provider": n}; S.elements[el["id"]] = el
             return {"physicalnetwork": p}
         def c_addtraffictype(self, q):
             if q["physicalnetworkid"] not in S.pns: return "physical network not found"
@@ -148,7 +149,24 @@ def make_server(S, port=0):
             if {"Management", "Guest", "Public"} - set(S.traffic.get(q["id"], [])): return "Management, Guest and Public traffic types are required first"
             S.pns[q["id"]]["state"] = q.get("state", "Enabled"); return {"physicalnetwork": S.pns[q["id"]]}
         def c_listnetworkserviceproviders(self, q): return self._list(S.providers, "networkserviceprovider", q, "physicalnetworkid", "name")
-        def c_updatenetworkserviceprovider(self, q): S.providers[q["id"]]["state"] = q["state"]; return {"networkserviceprovider": S.providers[q["id"]]}
+        def c_updatenetworkserviceprovider(self, q):
+            # like CloudStack 4.22: a provider with a not-yet-enabled element cannot be enabled
+            if q["state"] == "Enabled" and any(e["nspid"] == q["id"] and not e["enabled"] for e in S.elements.values()):
+                return "Provider is not ready, cannot Enable the provider, please configure the provider first"
+            S.providers[q["id"]]["state"] = q["state"]; return {"networkserviceprovider": S.providers[q["id"]]}
+
+        def _elements(self, q, kind, key):
+            m = [e for e in S.elements.values() if e["nspid"] == q.get("nspid") and kind(e["provider"])]
+            return {"count": len(m), key: m} if m else {}
+
+        def c_listvirtualrouterelements(self, q): return self._elements(q, lambda p: p in ("VirtualRouter", "VpcVirtualRouter"), "virtualrouterelement")
+        def c_listinternalloadbalancerelements(self, q): return self._elements(q, lambda p: p == "InternalLbVm", "internalloadbalancerelement")
+
+        def _conf_el(self, q):
+            if q.get("id") not in S.elements: return "entity not found"
+            S.elements[q["id"]]["enabled"] = q.get("enabled") == "true"; return {"element": S.elements[q["id"]]}
+        def c_configurevirtualrouterelement(self, q): return self._conf_el(q)
+        def c_configureinternalloadbalancerelement(self, q): return self._conf_el(q)
         def c_listpods(self, q): return self._list(S.pods, "pod", q, "zoneid", "name")
         def c_createpod(self, q):
             if q["zoneid"] not in S.zones: return "zone not found"

@@ -154,6 +154,30 @@ ACTIONS = {   # (resource, action) -> (command, id-param, extra)
 }
 
 
+# provider -> (list command, configure command): CloudStack refuses to enable these providers ("Provider is not ready ...
+# please configure the provider first", errorcode 530 - seen on 4.22.1.1) until their element is enabled
+PROVIDER_ELEMENTS = {"VirtualRouter": ("listVirtualRouterElements", "configureVirtualRouterElement"),
+                     "VpcVirtualRouter": ("listVirtualRouterElements", "configureVirtualRouterElement"),
+                     "InternalLbVm": ("listInternalLoadBalancerElements", "configureInternalLoadBalancerElement")}
+
+
+def _first_list(body):
+    for v in (body or {}).values():
+        if isinstance(v, list):
+            return v
+    return []
+
+
+def enable_provider_element(cs, prov, nspid, log=print):
+    lst, conf = PROVIDER_ELEMENTS.get(prov, (None, None))
+    if not lst:
+        return
+    for el in _first_list(cs.run(lst, nspid=nspid)):
+        if str(el.get("enabled")).lower() != "true":
+            cs.run(conf, id=el["id"], enabled="true")
+            log(f"[zone] {prov} element enabled")
+
+
 def bootstrap_zone(cs, spec, log=print):
     """Advanced zone with VLAN isolation. Every object is looked up by name first (safe to re-run)."""
     z, pod, pub = spec["zone"], spec["pod"], spec["public"]
@@ -179,6 +203,7 @@ def bootstrap_zone(cs, spec, log=print):
     for prov in ("VirtualRouter", "VpcVirtualRouter", "InternalLbVm"):
         sp = cs.find("listNetworkServiceProviders", "networkserviceprovider", physicalnetworkid=pn["id"], name=prov)
         if sp and sp.get("state") != "Enabled":
+            enable_provider_element(cs, prov, sp["id"], log)
             cs.run("updateNetworkServiceProvider", id=sp["id"], state="Enabled")
             log(f"[zone] provider {prov} enabled")
     p = cs.find("listPods", "pod", zoneid=zid, name=pod["name"])
