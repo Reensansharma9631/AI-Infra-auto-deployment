@@ -13,6 +13,11 @@ def is_auth_error(e):
     return any(x in t for x in ("HTTP 401", "HTTP 531", "(code 401)", "(code 531)"))
 
 
+# synchronous commands that do real work before answering: addHost SSHes to the host, runs cloudstack-setup-agent and
+# waits for the agent (minutes on real CloudStack 4.22 - a 30 s read timeout aborted it, job 19); pools/stores mount NFS
+SLOW = {"addhost": 1800, "createstoragepool": 900, "addimagestore": 900, "addcluster": 300, "createzone": 300}
+
+
 class CS:
     def __init__(self, url, api_key=None, secret=None, timeout=30, poll_interval=2, poll_max=300):
         self.base = url.rstrip("/")
@@ -38,7 +43,7 @@ class CS:
         data = urllib.parse.urlencode(p)
         req = urllib.request.Request(self.base, data=data.encode()) if post else urllib.request.Request(f"{self.base}?{data}")
         try:
-            with self._op.open(req, timeout=self.timeout) as r:
+            with self._op.open(req, timeout=max(self.timeout, SLOW.get(str(params.get("command", "")).lower(), 0))) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
@@ -227,7 +232,7 @@ def bootstrap_zone(cs, spec, log=print):
             if cs.find("listHosts", "host", zoneid=zid, name=h.get("hostname") or h["ip"]) or cs.find("listHosts", "host", zoneid=zid, keyword=h["ip"]):
                 log(f"[zone] host {h['ip']} exists")
                 continue
-            cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM", clustertype="CloudManaged",
+            cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM",
                    username=h.get("user", "root"), password=h.get("password") or None, url=f"http://{h['ip']}")
             log(f"[zone] host {h['ip']} added to {c['name']}")
         if c.get("primary_nfs") and not cs.find("listStoragePools", "storagepool", zoneid=zid, name=c.get("primary_name") or f"primary-{c['name']}"):

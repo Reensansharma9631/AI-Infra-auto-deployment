@@ -29,7 +29,9 @@ class CS:
         req = urllib.request.Request(self.base, data=data) if post else urllib.request.Request(f"{self.base}?{data.decode()}")
         if self.verbose: print("   >", {k: v for k, v in params.items() if "pass" not in k.lower()})
         try:
-            with urllib.request.urlopen(req, timeout=60) as r: return json.load(r)
+            # addHost answers only after the agent is set up (minutes); NFS pool/store creation mounts first
+            slow = str(params.get("command", "")).lower() in ("addhost", "createstoragepool", "addimagestore")
+            with urllib.request.urlopen(req, timeout=1800 if slow else 60) as r: return json.load(r)
         except urllib.error.HTTPError as e:
             body = e.read().decode(errors="replace")
             raise SystemExit(f"API {params.get('command')} failed: HTTP {e.code} {body[:400]}")
@@ -105,7 +107,7 @@ def main(spec):
         cl = cs.run("addCluster", zoneid=zid, podid=p["id"], clustername=spec["cluster"]["name"], clustertype="CloudManaged", hypervisor="KVM")["cluster"][0]; say(f"created cluster {cl['id']}")
     for h in spec.get("kvm_hosts", []):
         if cs.find("listHosts", "host", zoneid=zid, name=h["ip"]) or cs.find("listHosts", "host", zoneid=zid, keyword=h["ip"]): say(f"host {h['ip']} exists"); continue
-        cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM", clustertype="CloudManaged",
+        cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM",
                username=h.get("user", "root"), password=h["password"], url=f"http://{h['ip']}"); say(f"host {h['ip']} added")
 
     if spec.get("primary_nfs") and not cs.find("listStoragePools", "storagepool", zoneid=zid, name="primary-nfs"):

@@ -613,3 +613,25 @@ def test_rerun_reuses_saved_keys_and_recovers_from_regenerated_keys(app, operato
     j = go({"admin_password": "password"})
     log = operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
     assert j["state"] == "success" and "logging in again" in log
+
+
+def test_slow_sync_commands_get_a_long_read_timeout(monkeypatch):
+    """addHost on real CloudStack answers only after setting up the agent (minutes); the client must not give up after 30 s."""
+    from autoinfra import csapi
+    seen = {}
+
+    class R:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, *a): return b"{}"
+
+    def fake_open(req, timeout):
+        seen[urllib.parse.parse_qs(urllib.parse.urlparse(req.full_url).query)["command"][0]] = timeout
+        return R()
+    import json as _j, urllib.parse
+    monkeypatch.setattr(_j, "load", lambda r: {})
+    cs = csapi.CS("http://x", "k", "s")
+    monkeypatch.setattr(cs._op, "open", fake_open)
+    for c in ("listZones", "addHost", "createStoragePool", "addImageStore"):
+        cs._call({"command": c})
+    assert seen["listZones"] == 30 and seen["addHost"] >= 1800 and seen["createStoragePool"] >= 900 and seen["addImageStore"] >= 900
