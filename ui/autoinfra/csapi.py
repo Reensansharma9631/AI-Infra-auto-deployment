@@ -7,6 +7,12 @@ class CSError(Exception):
     pass
 
 
+def is_auth_error(e):
+    """Credentials refused - CloudStack answers HTTP 401/531, or an errorcode 401/531 inside a 200 body."""
+    t = str(e)
+    return any(x in t for x in ("HTTP 401", "HTTP 531", "(code 401)", "(code 531)"))
+
+
 class CS:
     def __init__(self, url, api_key=None, secret=None, timeout=30, poll_interval=2, poll_max=300):
         self.base = url.rstrip("/")
@@ -54,7 +60,7 @@ class CS:
                 return fn()
             except CSError as e:
                 n += 1
-                if time.time() >= end or "login failed" in str(e) or "HTTP 531" in str(e) or "HTTP 401" in str(e):   # wrong password: no retry
+                if time.time() >= end or "login failed" in str(e) or is_auth_error(e):   # wrong password / keys: no retry
                     raise
                 if log and n % 6 == 1:
                     log(f"[api] {what}: not ready yet ({e}); retrying")

@@ -46,7 +46,12 @@ class State:
                   "offerings", "systemvms", "templates", "vms", "volumes", "networks", "routers", "ips"):
             setattr(self, n, {})
         self.api_key, self.secret = uuid.uuid4().hex, uuid.uuid4().hex
+        self.key_rotations = 0
         self.calls, self.polls, self.bad_signatures, self.host_passwords = [], 0, 0, []
+
+    def rotate(self):
+        self.api_key, self.secret = uuid.uuid4().hex, uuid.uuid4().hex
+        self.key_rotations += 1
 
 
 def make_server(S, port=0):
@@ -81,6 +86,7 @@ def make_server(S, port=0):
                                 cookies=(f"JSESSIONID={uuid.uuid4().hex}; Path=/client", f"sessionkey={sk}; Path=/client"))
             if cmd == "registeruserkeys":
                 if S.sessions.get(q.get("sessionkey")) != uid: return self.err(cmd, "unauthorized", 401)
+                S.rotate()      # like real CloudStack: every registerUserKeys issues a NEW pair, the old one stops working
                 return self.out(key, {"userkeys": {"apikey": S.api_key, "secretkey": S.secret}})
             # real CloudStack (verified on 4.22.1.1): a request that carries the session cookie but no sessionkey parameter
             # is rejected even when its API-key signature is valid

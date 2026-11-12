@@ -332,10 +332,19 @@ def _api_session(log, url, admin_user, admin_password, wait=None):
     wait = float(db.get_setting("cs_api_wait") or os.environ.get("AUTOINFRA_CS_API_WAIT", 900)) if wait is None else wait
     cs = csapi.CS(url, poll_interval=float(db.get_setting("cs_poll_interval", 2)))
     saved = db.get_setting("cs_api_key") and inventory.secret_get("cs_secret_key") and db.get_setting("cs_api_url") == url
-    if saved and not admin_password:
+    if saved:   # saved keys first: a re-run must not register new keys (that invalidates the old ones)
         cs.api_key, cs.secret = db.get_setting("cs_api_key"), inventory.secret_get("cs_secret_key")
-        cs.wait_ready(wait, log)
-        return cs
+        try:
+            cs.wait_ready(wait, log)
+            return cs
+        except csapi.CSError as e:
+            if not csapi.is_auth_error(e):
+                raise
+            if not admin_password:
+                raise csapi.CSError("the saved CloudStack API keys were rejected (regenerated in CloudStack?) - enter the CloudStack admin "
+                                    "password on the Review step and resume the deployment") from None
+            log("[api] the saved API keys were rejected (regenerated in CloudStack?) - logging in again")
+            cs = csapi.CS(url, poll_interval=float(db.get_setting("cs_poll_interval", 2)))
     log(f"[api] logging in to {url} as {admin_user}")
     key, sec = cs.login_retry(admin_user, admin_password or "password", wait, log)
     db.set_setting("cs_api_url", url)
@@ -357,8 +366,7 @@ def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
 @jobs.register("cs_zone_bootstrap")
 def cs_zone_bootstrap(log, spec, url=None, admin_user="admin", admin_password=None):
     url = url or db.get_setting("cs_api_url") or f"http://{spec['management_vip']}:8080"
-    have_keys = db.get_setting("cs_api_key") and inventory.secret_get("cs_secret_key") and db.get_setting("cs_api_url") == url
-    cs = _api_session(log, url, admin_user, None if have_keys else admin_password)
+    cs = _api_session(log, url, admin_user, admin_password)
     csapi.bootstrap_zone(cs, spec, log)
     return True
 

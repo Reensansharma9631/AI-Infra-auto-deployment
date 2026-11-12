@@ -589,3 +589,23 @@ def test_resume_refused_when_the_plan_changed(app, operator, lab, cs_mock):
     assert operator.post("/api/cs/wizard/management", json={"usage": False}).status_code == 200    # removes a playbook
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password", "resume": True})
     assert r.status_code == 409 and "wizard changed" in r.get_json()["error"]
+
+
+def test_rerun_reuses_saved_keys_and_recovers_from_regenerated_keys(app, operator, lab, cs_mock):
+    """Real CloudStack issues a NEW key pair on every registerUserKeys: a re-run must reuse the saved pair, and when the saved
+    pair was regenerated elsewhere it logs in again (password given) or says what to do (no password)."""
+    fill(operator, lab, **_single(lab))
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    go = lambda body: wait_job(operator, operator.post("/api/cs/wizard/deploy", json=dict(body, force=True)).get_json()["job_id"], 120)
+    assert go({"admin_password": "password"})["state"] == "success" and cs_mock.key_rotations == 1
+    assert go({"admin_password": "password"})["state"] == "success" and cs_mock.key_rotations == 1      # saved keys reused
+    cs_mock.rotate()                                                                                    # regenerated in CloudStack
+    j = go({})
+    log = operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert j["state"] == "failed" and "saved CloudStack API keys were rejected" in log
+    j = go({"admin_password": "password"})
+    log = operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert j["state"] == "success" and "logging in again" in log
