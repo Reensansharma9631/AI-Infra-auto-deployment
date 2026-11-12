@@ -483,16 +483,17 @@ def deploy():
 def resume_point(names):
     """(index of the first step to run, previous job id, error). Every playbook and the zone bootstrap are idempotent, so
     resuming means: skip the steps the last failed deployment finished, provided the plan is still the same."""
-    prev = db.one("SELECT id, state, steps FROM jobs WHERE kind='deploy-cloudstack' ORDER BY id DESC LIMIT 1")
+    prev = db.one("SELECT id, state, steps, meta FROM jobs WHERE kind='deploy-cloudstack' ORDER BY id DESC LIMIT 1")
     if not prev or prev["state"] != "failed":
         return 0, None, "nothing to resume: the last CloudStack deployment did not fail - use Start CloudStack Deployment"
     st = json.loads(prev["steps"] or "[]")
     bad = next((i for i, x in enumerate(st) if x["state"] == "failed"), None)
     if bad is None:
         return 0, None, f"job #{prev['id']} has no failed step to resume from"
-    if [x["name"] for x in st] != names:
+    off = int((json.loads(prev["meta"] or "{}")).get("start_at") or 0)   # that job was itself a resume
+    if [x["name"] for x in st] != names[off:]:
         return 0, None, f"the wizard changed since job #{prev['id']} - its steps differ; start a new deployment"
-    return bad, prev["id"], None
+    return off + bad, prev["id"], None
 
 
 # ------------------------------------------------------------------ infrastructure API (live CloudStack)

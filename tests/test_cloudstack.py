@@ -566,6 +566,10 @@ def test_resume_runs_only_the_failed_step_onward(app, operator, lab, cs_mock):
     j1 = wait_job(operator, r.get_json()["job_id"], 120)
     assert j1["state"] == "failed" and j1["steps"][-1]["state"] == "failed" and all(s["state"] == "ok" for s in j1["steps"][:-1])
     n_playbooks = len(ansible_calls(app))
+    # a resume that fails again can itself be resumed (offsets add up)
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "still-wrong", "resume": True})
+    jr = wait_job(operator, r.get_json()["job_id"], 120)
+    assert jr["state"] == "failed" and len(jr["steps"]) == 1
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password", "resume": True})
     assert r.status_code == 202, r.get_json()
     j2 = wait_job(operator, r.get_json()["job_id"], 120)
