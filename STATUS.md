@@ -41,6 +41,11 @@ Layout deployed through the UI API (the same calls the wizard makes):
   `kvm-01` / `nfs-01.autoinfra.local` through the master and get *refused* for internet names (job 35, air gap still on).
   Covers Ubuntu 24.04 images with and without systemd-resolved (nfs-01 has none).
 
+- **Master routes to the internal networks** (root path unit, no sudo): set by the deployment (job 36); the smoke test's
+  reachability check passes **from the master itself**.
+- **Optional extra console proxy**: wizard "Console proxies = 2" -> 2 CPVMs Running/Up on different hosts (job 38, smoke 10/10).
+  Going back to 1 takes effect at the next management-server restart (the setting is not dynamic in CloudStack 4.22).
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -50,9 +55,6 @@ Layout deployed through the UI API (the same calls the wizard makes):
 
 ## NOT VERIFIED
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
-- **The master's own route to the internal subnets** - the job step exists but the service runs with NoNewPrivileges, so its
-  `sudo` call is refused (job 35 warning). Planned fix: a root-owned systemd path unit runs `autoinfra-master-net` from a request
-  file (no sudo). Until then: `ip route replace 10.200.0.0/24 via 172.27.15.240; ip route replace 10.201.0.0/24 via 172.27.15.240` on the master.
 - The Components page "Management Server" card alone (FIXES #13, known broken).
 - Browser e2e suite (Playwright not installed on this master).
 - Usage server, SSL (nginx) in front of the management UI, Zabbix monitoring on CloudStack.
