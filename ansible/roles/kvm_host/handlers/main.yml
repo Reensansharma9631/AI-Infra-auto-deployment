@@ -2,3 +2,8 @@
 - name: restart libvirtd
   ansible.builtin.service: {name: libvirtd, state: restarted}
   when: autoinfra_services | default(true) | bool
+
+# CloudStack: "Incorrect Network setup on agent, Reinitialize agent after network names are setup"
+- name: restart cloudstack-agent
+  ansible.builtin.shell: systemctl is-enabled --quiet cloudstack-agent 2>/dev/null && systemctl restart cloudstack-agent || true
+  when: autoinfra_services | default(true) | bool and kvm_cloudstack_agent | default(true) | bool

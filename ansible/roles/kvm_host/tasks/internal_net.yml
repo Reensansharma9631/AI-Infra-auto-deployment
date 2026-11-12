@@ -17,6 +17,7 @@
 - name: Internal bridge unit
   ansible.builtin.template: {src: autoinfra-internal-net.service.j2, dest: /etc/systemd/system/autoinfra-internal-net.service, mode: "0644"}
   register: in_unit
+  notify: restart cloudstack-agent
 
 - name: Internal bridge up now and at boot
   ansible.builtin.systemd: {name: autoinfra-internal-net.service, enabled: true, state: "{{ 'restarted' if in_unit is changed else 'started' }}", daemon_reload: true}

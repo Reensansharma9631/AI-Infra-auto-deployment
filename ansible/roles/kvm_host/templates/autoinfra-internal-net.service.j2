@@ -1,5 +1,6 @@
 # managed by AutoInfra - internal CloudStack bridge {{ kvm_internal_net.bridge }} (pod/public gateway for system VMs)
-# The bridge has no physical NIC; a dummy device gives CloudStack a parent for guest VLAN interfaces (aidummy0.<vlan>).
+# The bridge has no physical NIC; a dummy device gives CloudStack a parent for guest VLAN interfaces (dummyai0.<vlan>).
+# Its name must match the KVM agent's interface patterns (^dummy, ^eth, ^ens ...; 4.22) or the agent does not report the bridge.
 [Unit]
 Description=AutoInfra internal network {{ kvm_internal_net.bridge }}
 Before=libvirtd.service cloudstack-agent.service
@@ -9,11 +10,13 @@ Wants=network-pre.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# earlier AutoInfra versions named the device aidummy0, which the agent ignores
+ExecStartPre=-/usr/sbin/ip link del aidummy0
 ExecStart=/usr/sbin/sysctl -q -w net.ipv4.ip_forward=1
-ExecStart=/bin/sh -c 'ip link show aidummy0 >/dev/null 2>&1 || ip link add aidummy0 type dummy'
+ExecStart=/bin/sh -c 'ip link show dummyai0 >/dev/null 2>&1 || ip link add dummyai0 type dummy'
 ExecStart=/bin/sh -c 'ip link show {{ kvm_internal_net.bridge }} >/dev/null 2>&1 || ip link add {{ kvm_internal_net.bridge }} type bridge'
-ExecStart=/usr/sbin/ip link set aidummy0 master {{ kvm_internal_net.bridge }}
-ExecStart=/usr/sbin/ip link set aidummy0 up
+ExecStart=/usr/sbin/ip link set dummyai0 master {{ kvm_internal_net.bridge }}
+ExecStart=/usr/sbin/ip link set dummyai0 up
 ExecStart=/usr/sbin/ip link set {{ kvm_internal_net.bridge }} up
 {% for a in kvm_internal_net.addresses %}
 ExecStart=/usr/sbin/ip addr replace {{ a }} dev {{ kvm_internal_net.bridge }}

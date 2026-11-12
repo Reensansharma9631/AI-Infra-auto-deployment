@@ -617,12 +617,18 @@ def _unit_exec(text):
 def test_internal_net_unit(rendered, fam):
     t = (rendered[fam] / "kvm_host__templates__autoinfra-internal-net.service").read_text()
     ex = _unit_exec(t)
-    assert any("ip link add aidummy0 type dummy" in c for c in ex) and any("ip link add cloudbr1 type bridge" in c for c in ex)
+    assert any("ip link add dummyai0 type dummy" in c for c in ex) and any("ip link add cloudbr1 type bridge" in c for c in ex)
     assert "/usr/sbin/ip addr replace 10.200.0.1/24 dev cloudbr1" in ex and "/usr/sbin/ip addr replace 10.201.0.1/24 dev cloudbr1" in ex
     assert sum("-s 10.20" in c and "! -o cloudbr1 -j MASQUERADE" in c for c in ex) == 2
     assert "Before=libvirtd.service cloudstack-agent.service" in t
-    # VLAN devices CloudStack creates on the dummy parent must fit IFNAMSIZ (15): aidummy0.4094
-    assert len("aidummy0.4094") <= 15
+    # VLAN devices CloudStack creates on the dummy parent must fit IFNAMSIZ (15): dummyai0.4094
+    assert len("dummyai0.4094") <= 15
+    # the KVM agent only reports bridges whose member matches its interface patterns (4.22.1.1 LibvirtComputingResource);
+    # 'aidummy0' did not -> "Can not find network: cloudbr1" on the real lab
+    agent_patterns = [r"^eth", r"^bond", r"^vlan", r"^vx", r"^em", r"^ens", r"^eno", r"^enp", r"^team", r"^enx", r"^dummy", r"^lo",
+                      r"^p\d+p\d+", r"^vni", r"^enc"]
+    assert any(re.match(p, "dummyai0") for p in agent_patterns) and not any(re.match(p, "aidummy0") for p in agent_patterns)
+    assert "ExecStartPre=-/usr/sbin/ip link del aidummy0" in t
 
 
 @pytest.mark.parametrize("fam", list(FAMILIES))
@@ -652,8 +658,8 @@ def test_internal_net_unit_really_builds_the_network(rendered, tmp_path):
     script = tmp_path / "net.sh"
     body = "\n".join(c.replace("/usr/sbin/sysctl -q -w", "sysctl -q -w") for c in ex)
     script.write_text("set -e\nip link set lo up\n" + body + "\n" + body + "\n"
-                      "ip -br addr show cloudbr1\nip -d link show aidummy0\niptables -t nat -S POSTROUTING\nsysctl -n net.ipv4.ip_forward\n"
-                      "ip link add link aidummy0 name aidummy0.4094 type vlan id 4094 && echo VLAN-OK\n")
+                      "ip -br addr show cloudbr1\nip -d link show dummyai0\niptables -t nat -S POSTROUTING\nsysctl -n net.ipv4.ip_forward\n"
+                      "ip link add link dummyai0 name dummyai0.4094 type vlan id 4094 && echo VLAN-OK\n")
     r = subprocess.run(["unshare", "-n", "sh", str(script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
     out = r.stdout
