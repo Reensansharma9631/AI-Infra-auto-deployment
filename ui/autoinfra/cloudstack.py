@@ -327,8 +327,9 @@ def internal_net_vars(s, hosts):
                                  "host_addresses": {ip: f"{a}/{pn.prefixlen}" for ip, a in zip(peers[1:], internal_member_ips(pn, len(peers) - 1))},
                                  # explicit, per-host MAC: cloned VMs share /etc/machine-id, so systemd gives every bridge the same MAC
                                  "macs": {ip: "02:a1:" + ":".join(f"{int(o):02x}" for o in ip.split(".")) for ip in peers}},
-            # KVM hosts are on the internal bridge themselves: no route for them (it would hide the connected subnet)
-            "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip, "except": peers}, {"to": str(bn), "via": kvm_ip, "except": peers}],
+            # KVM hosts have an address in the pod subnet (connected) - no pod route for them; the public subnet has no
+            # address on the members, so they keep that route via the gateway
+            "autoinfra_static_routes": [{"to": str(pn), "via": kvm_ip, "except": peers}, {"to": str(bn), "via": kvm_ip}],
             "nfs_extra_cidrs": [str(pn)]}
 
 

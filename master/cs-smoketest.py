@@ -136,22 +136,28 @@ def main():
                openfirewall="false")
     if not cs.items("listFirewallRules", "firewallrule", ipaddressid=pub["id"], listall="true"):
         cs.run("createFirewallRule", ipaddressid=pub["id"], protocol="TCP", startport=2222, endport=2222, cidrlist="0.0.0.0/0")
-    probe = (f"timeout 300 bash -c 'until exec 3<>/dev/tcp/{pub['ipaddress']}/2222; do sleep 5; done 2>/dev/null; "
+    probe = (f"timeout 120 bash -c 'until exec 3<>/dev/tcp/{pub['ipaddress']}/2222; do sleep 5; done 2>/dev/null; "
              f"timeout 20 head -c 64 <&3' || echo ERR")
-    src = a.src
-    if not src:
-        src = (sorted(hosts, key=lambda h: h.get("created", ""))[0] if hosts else {}).get("name")
-        db = sqlite3.connect(os.path.join(data, "autoinfra.db"))
-        row = db.execute("SELECT ip, ssh_user, ssh_port FROM hosts WHERE hostname=? OR ip=?", (src, src)).fetchone()
-        src = row
-    if src == "local":
-        out = subprocess.run(["sh", "-c", probe], capture_output=True, text=True, timeout=330).stdout.strip()
-    else:
-        ip_, user, port = src if isinstance(src, tuple) else (src, "root", 22)
-        out = subprocess.run(["ssh", "-i", os.path.join(data, "ssh", "id_ed25519"), "-p", str(port or 22), "-o", "BatchMode=yes",
-                              "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
-                              f"{user or 'root'}@{ip_}", probe], capture_output=True, text=True, timeout=330).stdout.strip()
-    check("test VM reachable: SSH banner via public IP port forward", out.startswith("SSH-"), f"{pub['ipaddress']}:2222 -> {ip}:22 : {out[:60]}")
+    db = sqlite3.connect(os.path.join(data, "autoinfra.db"))
+    if a.src == "local":
+        cands = ["local"]
+    elif a.src:
+        cands = [db.execute("SELECT ip, ssh_user, ssh_port FROM hosts WHERE hostname=? OR ip=?", (a.src, a.src)).fetchone() or (a.src, "root", 22)]
+    else:   # every KVM host in turn (the internal-network gateway answers first)
+        cands = [r for h in hosts for r in [db.execute("SELECT ip, ssh_user, ssh_port FROM hosts WHERE hostname=?", (h["name"],)).fetchone()] if r]
+    out, used = "", None
+    for c in cands:
+        if c == "local":
+            out = subprocess.run(["sh", "-c", probe], capture_output=True, text=True, timeout=330).stdout.strip()
+        else:
+            ip_, user, port = c
+            out = subprocess.run(["ssh", "-i", os.path.join(data, "ssh", "id_ed25519"), "-p", str(port or 22), "-o", "BatchMode=yes",
+                                  "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
+                                  f"{user or 'root'}@{ip_}", probe], capture_output=True, text=True, timeout=330).stdout.strip()
+        used = c if c == "local" else c[0]
+        if out.startswith("SSH-"):
+            break
+    check("test VM reachable: SSH banner via public IP port forward", out.startswith("SSH-"), f"{pub['ipaddress']}:2222 -> {ip}:22 from {used}: {out[:60]}")
 
     if a.cleanup:
         cs.run("destroyVirtualMachine", id=vm["id"], expunge="true")

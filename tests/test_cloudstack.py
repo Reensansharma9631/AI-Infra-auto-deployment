@@ -541,7 +541,8 @@ def test_internal_net_two_kvm_hosts_gateway_and_vxlan_peers(app, operator, lab):
     assert "10.0.1.22" in n["nat_exempt"] and "10.0.1.21" not in n["nat_exempt"]
     assert n["host_addresses"] == {"10.0.1.22": "10.200.0.254/24"}                     # agent needs an IP on its private bridge
     assert n["macs"] == {"10.0.1.21": "02:a1:0a:00:01:15", "10.0.1.22": "02:a1:0a:00:01:16"}   # unique despite cloned machine-ids
-    assert all(r["except"] == ["10.0.1.21", "10.0.1.22"] for r in v["autoinfra_static_routes"])
+    pod_r, pub_r = v["autoinfra_static_routes"]
+    assert pod_r["except"] == ["10.0.1.21", "10.0.1.22"] and "except" not in pub_r      # members still route to the public subnet
 
 
 def test_internal_net_member_address_must_not_be_in_pod_range(operator, lab):
@@ -561,7 +562,7 @@ def test_internal_net_vars_and_zone_spec(app, operator, lab):
     assert {k: v["kvm_internal_net"][k] for k in ("bridge", "addresses", "nat_cidrs", "nat_exempt", "gateway", "peers")} == {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24", "10.201.0.1/24"],
                                      "nat_cidrs": ["10.200.0.0/24", "10.201.0.0/24"], "nat_exempt": ["10.0.0.10", "10.0.0.31"],
                                      "gateway": "10.0.1.21", "peers": ["10.0.1.21"]}
-    assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21", "except": ["10.0.1.21"]}, {"to": "10.201.0.0/24", "via": "10.0.1.21", "except": ["10.0.1.21"]}]
+    assert v["autoinfra_static_routes"] == [{"to": "10.200.0.0/24", "via": "10.0.1.21", "except": ["10.0.1.21"]}, {"to": "10.201.0.0/24", "via": "10.0.1.21"}]
     assert v["nfs_extra_cidrs"] == ["10.200.0.0/24"]
     assert spec["kvm_labels"] == {"management": "cloudbr1", "guest": "cloudbr1", "public": "cloudbr1"}
     assert spec["pod"]["gateway"] == "10.200.0.1" and spec["public"]["gateway"] == "10.201.0.1"
