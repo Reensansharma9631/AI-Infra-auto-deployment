@@ -25,8 +25,9 @@
         <p class="hint">Mandatory services are always on. "advanced" services need extra configuration after deployment (hover for details).</p>
       </form>
       <form class="pane" data-step="network"><h2>Network &amp; Storage</h2><div class="errs"></div>
-        <div class="row"><div class="f"><label>Management interface *</label><input type="text" name="network_interface"></div><div class="f"><label>Provider / external interface *</label><input type="text" name="external_interface"></div>
-          <div class="f"><label>Internal VIP *</label><input type="text" name="vip"></div></div>
+        <div class="row"><div class="f"><label>Management interface * (<span class="mono">auto</span> = detected on each node)</label><input type="text" name="network_interface"></div><div class="f"><label>Provider / external interface * (created as a dummy NIC if missing)</label><input type="text" name="external_interface"></div>
+          <div class="f"><label>Internal VIP (empty with 1 controller = no HAProxy, the controller's IP)</label><input type="text" name="vip"></div>
+          <div class="f"><label>Container engine</label><select name="container_engine"><option value="podman">Podman (no Docker)</option><option value="docker">Docker</option></select></div></div>
         <div class="row"><div class="f"><label>Provider network</label><input type="text" name="provider_network"></div><div class="f"><label>VLAN range</label><input type="text" name="vlan_range"></div>
           <div class="f"><label>Neutron plugin</label><select name="neutron_plugin"><option value="ovn">OVN</option><option value="openvswitch">Open vSwitch</option></select></div></div>
         <div class="row"><div class="f"><label>Storage backend</label><select name="storage_backend"><option value="lvm">LVM (storage nodes)</option><option value="nfs">NFS</option><option value="ceph-external">Ceph (external)</option><option value="none">None</option></select></div>

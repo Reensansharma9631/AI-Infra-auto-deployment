@@ -35,6 +35,11 @@ def redact(text, secrets=()):
     return text
 
 
+def running(kind):
+    """The queued/running job of this kind, if any (a second deployment on the same machines must not start)."""
+    return db.one("SELECT id, title FROM jobs WHERE kind=? AND state IN ('queued','running') ORDER BY id DESC LIMIT 1", (kind,))
+
+
 def start(kind, title, steps, meta=None, user=None, secrets=(), sync=False):
     """steps: [{"name": str, "cmd": [..], "env": {}, "cwd": str, "timeout": s} | {"name", "fn": name, "args": {}}]"""
     meta = meta or {}

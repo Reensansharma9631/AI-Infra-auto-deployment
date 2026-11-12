@@ -438,3 +438,17 @@ def test_detect_interfaces_writes_per_host_interface(app, operator, oslab, monke
         assert openstack.os_detect_interfaces(logs.append, d) is True
         m = open(f"{d}/multinode").read()
     assert "ansible_host=10.0.0.21" in m and "network_interface=cloudbr0" in m and "network_interface=ens160" in m
+
+
+
+def test_second_deployment_refused_while_one_runs(app, operator, oslab, monkeypatch):
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab)
+    from autoinfra import db
+    with app.app_context():
+        jid = db.ex("INSERT INTO jobs(kind,title,state,created,by_user,meta,steps) VALUES('deploy-openstack','x','running',0,'t','{}','[]')")
+    r = operator.post("/api/os/deploy", json={})
+    assert r.status_code == 409 and f"job #{jid}" in r.get_json()["error"]
+    with app.app_context():
+        db.ex("UPDATE jobs SET state='failed' WHERE id=?", (jid,))
+    assert operator.post("/api/os/deploy", json={}).status_code == 202

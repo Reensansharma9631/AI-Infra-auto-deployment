@@ -26,4 +26,5 @@ Rules for every item (owner's requirements):
 | 13 | **Metabase** (native) | offline + online | planned |
 | 14 | **Ollama** + qwen3:8b, gemma4, gpt-oss:20b, devstral:24b, qwen3-coder:30b, llama4 (67 GB - cannot run on 31 GB RAM, shipped only); knowledge base from this project's troubleshooting; auto-heal | offline + online | planned |
 | 15 | **One combined offline zip** (all packages + UI) + clean rebuild proof | - | after the items above |
+| 17 | **Version matrix**: CloudStack 4.19, 4.20, 4.21, 4.22 (LTS lines) with packages from **ShapeBlue** or **Apache official** (option per deployment); OpenStack 2025.2 Flamingo, 2026.1 Gazpacho, 2026.2, 2027.1 Indri - each version deployed + tested on the 4 VMs. 2027.1 is still in development: tested as the snapshot that exists, not guaranteed | offline + online | planned |
 | 16 | UI test harness: Playwright + Chromium on the master, every deployment driven through the browser | - | planned (before items 6-14) |

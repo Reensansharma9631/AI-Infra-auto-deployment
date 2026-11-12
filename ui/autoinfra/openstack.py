@@ -312,6 +312,9 @@ def regen_passwords():
 @auth.role_required("operator")
 def deploy():
     j = request.get_json(silent=True) or {}
+    busy = jobs.running("deploy-openstack")
+    if busy:      # real lab: a double click / second browser started two deployments on the same nodes
+        return jsonify(error=f"a deployment is already running: job #{busy['id']} ({busy['title']}) - wait for it or cancel it"), 409
     s = state()
     errs = {st: e for st in STEPS[:-1] for e in [validate(st, s[st], s)] if e}
     if errs:

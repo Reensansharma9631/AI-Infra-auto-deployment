@@ -555,6 +555,9 @@ def preflight_errors(s):
 @auth.role_required("operator")
 def deploy():
     j = request.get_json(silent=True) or {}
+    busy = jobs.running("deploy-cloudstack")
+    if busy:      # real lab: a double click / second browser started two deployments on the same nodes
+        return jsonify(error=f"a deployment is already running: job #{busy['id']} ({busy['title']}) - wait for it or cancel it"), 409
     s = state()
     errs = preflight_errors(s)
     if errs and not j.get("force"):

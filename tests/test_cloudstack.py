@@ -801,3 +801,13 @@ def test_extra_console_proxies_add_the_restart_step_before_the_zone(app, operato
     assert names.index("Apply CloudStack global settings (management VIP / servers, console proxies)") < names.index(
         "Restart management servers (apply the global settings)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")
     assert cs_mock.config["consoleproxy.capacity.standby"] == "51"
+
+
+
+def test_second_cloudstack_deployment_refused_while_one_runs(app, operator, lab):
+    fill(operator, lab)
+    from autoinfra import db
+    with app.app_context():
+        jid = db.ex("INSERT INTO jobs(kind,title,state,created,by_user,meta,steps) VALUES('deploy-cloudstack','x','queued',0,'t','{}','[]')")
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True})
+    assert r.status_code == 409 and f"job #{jid}" in r.get_json()["error"]
