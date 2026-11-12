@@ -136,8 +136,10 @@ def main():
                openfirewall="false")
     if not cs.items("listFirewallRules", "firewallrule", ipaddressid=pub["id"], listall="true"):
         cs.run("createFirewallRule", ipaddressid=pub["id"], protocol="TCP", startport=2222, endport=2222, cidrlist="0.0.0.0/0")
-    probe = (f"timeout 120 bash -c 'until exec 3<>/dev/tcp/{pub['ipaddress']}/2222; do sleep 5; done 2>/dev/null; "
-             f"timeout 20 head -c 64 <&3' || echo ERR")
+    # each attempt in a subshell (a failed 'exec 3<>/dev/tcp/..' ends a non-interactive bash); read ONE line - the SSH server
+    # sends ~40 bytes and then waits, so 'head -c 64' never returned
+    probe = ("bash -c 'for i in $(seq 24); do b=$( (exec 3<>/dev/tcp/" + pub["ipaddress"] + "/2222; IFS= read -r -t 10 l <&3; echo \"$l\") 2>/dev/null ); "
+             "case \"$b\" in SSH-*) echo \"$b\"; exit 0;; esac; sleep 5; done; echo ERR'")
     db = sqlite3.connect(os.path.join(data, "autoinfra.db"))
     if a.src == "local":
         cands = ["local"]
