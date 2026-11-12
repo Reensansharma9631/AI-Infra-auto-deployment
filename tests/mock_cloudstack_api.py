@@ -2,7 +2,7 @@
 request signature (HMAC-SHA1 over the sorted, lower-cased query), supports sessionkey login + registerUserKeys,
 async jobs (the first poll answers 'pending'), required-parameter checks and parent/child consistency.
 It proves OUR client's logic (signing, polling, ordering, idempotency) - NOT that real CloudStack accepts every parameter."""
-import base64, hashlib, hmac, json, threading, urllib.parse, uuid
+import time, base64, hashlib, hmac, json, threading, urllib.parse, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 L = lambda s: s.lower()
@@ -47,6 +47,7 @@ class State:
             setattr(self, n, {})
         self.api_key, self.secret = uuid.uuid4().hex, uuid.uuid4().hex
         self.key_rotations = 0
+        self.host_up_delay = 0.5
         self.calls, self.polls, self.bad_signatures, self.host_passwords = [], 0, 0, []
 
     def rotate(self):
@@ -98,6 +99,8 @@ def make_server(S, port=0):
             if q.get("apikey") != S.api_key or not hmac.compare_digest(sig, good):
                 S.bad_signatures += 1; return self.err(cmd, "unable to verify user credentials and/or request signature", 401)
             S.calls.append(cmd)
+            for h in S.hosts.values():
+                if h.get("state") == "Connecting" and time.time() >= h.get("_up_at", 0): h["state"] = "Up"
             for r in REQUIRED.get(cmd, []):
                 if r not in q: return self.err(cmd, f"Unable to execute API command {cmd} due to missing parameter {r}")
             fn = getattr(self, "c_" + cmd, None)
@@ -185,11 +188,15 @@ def make_server(S, port=0):
         def c_addhost(self, q):
             if q["clusterid"] not in S.clusters: return "cluster not found"
             S.host_passwords.append(q.get("password"))
-            h = {"id": nid(), "name": q["url"].replace("http://", ""), "zoneid": q["zoneid"], "clusterid": q["clusterid"], "state": "Up"}; S.hosts[h["id"]] = h; return {"host": [h]}
+            h = {"id": nid(), "name": q["url"].replace("http://", ""), "zoneid": q["zoneid"], "clusterid": q["clusterid"], "type": "Routing",
+                 # like a real agent: Connecting first, Up a moment later
+                 "state": "Connecting" if S.host_up_delay else "Up", "_up_at": time.time() + S.host_up_delay}; S.hosts[h["id"]] = h; return {"host": [h]}
         def c_liststoragepools(self, q): return self._list(S.pools, "storagepool", q, "zoneid", "name")
         def c_createstoragepool(self, q):
             if not q.get("clusterid") or q["clusterid"] not in S.clusters: return "cluster scope needs a valid clusterid"
             if not q["url"].startswith("nfs://"): return "invalid url"
+            if not any(h["clusterid"] == q["clusterid"] and h["state"] == "Up" for h in S.hosts.values()):
+                return f"Failed to add data store: No host up to associate a storage pool with in cluster {q['clusterid']}"
             p = {"id": nid(), "name": q["name"], "zoneid": q["zoneid"], "path": q["url"]}; S.pools[p["id"]] = p; return {"storagepool": p}
         def c_listimagestores(self, q): return self._list(S.stores, "imagestore", q, "zoneid", "name")
         def c_addimagestore(self, q):

@@ -183,6 +183,26 @@ def enable_provider_element(cs, prov, nspid, log=print):
             log(f"[zone] {prov} element enabled")
 
 
+def wait_hosts_up(cs, zid, cl, hosts, log, wait=900, poll=5):
+    """Primary storage needs an Up host in the cluster ('No host up to associate a storage pool with'); a freshly added or
+    restarted agent needs a while to connect."""
+    if not hosts:
+        return
+    end, said = time.time() + wait, False
+    while True:
+        st = {h.get("name"): h.get("state") for h in cs.items("listHosts", "host", zoneid=zid, clusterid=cl["id"], type="Routing")}
+        if st and all(v == "Up" for v in st.values()):
+            log(f"[zone] hosts Up in {cl.get('name', cl['id'])}: {', '.join(sorted(st))}")
+            return
+        if time.time() >= end:
+            raise CSError(f"hosts in cluster {cl.get('name', cl['id'])} not Up after {wait}s: {st} - read the agent log on the host "
+                          "(/var/log/cloudstack/agent/agent.log) and management-server.log ('Unable to setup agent')")
+        if not said:
+            log(f"[zone] waiting for the hosts to be Up: {st}")
+            said = True
+        time.sleep(poll)
+
+
 def bootstrap_zone(cs, spec, log=print):
     """Advanced zone with VLAN isolation. Every object is looked up by name first (safe to re-run)."""
     z, pod, pub = spec["zone"], spec["pod"], spec["public"]
@@ -235,6 +255,7 @@ def bootstrap_zone(cs, spec, log=print):
             cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM",
                    username=h.get("user", "root"), password=h.get("password") or None, url=f"http://{h['ip']}")
             log(f"[zone] host {h['ip']} added to {c['name']}")
+        wait_hosts_up(cs, zid, cl, c.get("hosts", []), log, spec.get("host_up_wait", 900))
         if c.get("primary_nfs") and not cs.find("listStoragePools", "storagepool", zoneid=zid, name=c.get("primary_name") or f"primary-{c['name']}"):
             cs.run("createStoragePool", zoneid=zid, podid=p["id"], clusterid=cl["id"], name=c.get("primary_name") or f"primary-{c['name']}",
                    scope="cluster", hypervisor="KVM", url=f"nfs://{c['primary_nfs']}")

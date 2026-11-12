@@ -312,6 +312,10 @@ def test_list_every_resource(operator, cs_configured, res):
 def test_create_chain_and_summary(operator, zone):
     z, p, c = zone["zone"], zone["pod"], zone["cluster"]
     assert operator.post("/api/cs/hosts", json={"zoneid": z["id"], "podid": p["id"], "clusterid": c["id"], "url": "http://10.0.1.21"}).status_code == 201
+    # like real CloudStack, a pool needs an Up host: before the agent connected the API answers with an error
+    r = operator.post("/api/cs/storagepools", json={"zoneid": z["id"], "podid": p["id"], "clusterid": c["id"], "name": "pri", "url": "nfs://10.0.0.31/export/p"})
+    assert r.status_code == 502 and "No host up" in r.get_json()["error"]
+    __import__("time").sleep(0.6)
     assert operator.post("/api/cs/storagepools", json={"zoneid": z["id"], "podid": p["id"], "clusterid": c["id"], "name": "pri", "url": "nfs://10.0.0.31/export/p"}).status_code == 201
     assert operator.post("/api/cs/imagestores", json={"zoneid": z["id"], "name": "sec", "url": "nfs://10.0.0.31/export/s"}).status_code == 201
     assert operator.post("/api/cs/serviceofferings", json={"name": "small", "displaytext": "1x1", "cpunumber": 1, "cpuspeed": 1000, "memory": 1024}).status_code == 201

@@ -109,6 +109,13 @@ def main(spec):
         if cs.find("listHosts", "host", zoneid=zid, name=h["ip"]) or cs.find("listHosts", "host", zoneid=zid, keyword=h["ip"]): say(f"host {h['ip']} exists"); continue
         cs.run("addHost", zoneid=zid, podid=p["id"], clusterid=cl["id"], hypervisor="KVM",
                username=h.get("user", "root"), password=h["password"], url=f"http://{h['ip']}"); say(f"host {h['ip']} added")
+    # primary storage needs an Up host ("No host up to associate a storage pool with"); a new agent takes a while to connect
+    for _ in range(180):
+        st = [h.get("state") for h in (cs.run("listHosts", zoneid=zid, clusterid=cl["id"], type="Routing").get("host") or [])]
+        if st and all(x == "Up" for x in st): say("hosts Up"); break
+        time.sleep(5)
+    else:
+        raise SystemExit(f"KVM hosts not Up after 15 min: {st} - read /var/log/cloudstack/agent/agent.log on the host")
 
     if spec.get("primary_nfs") and not cs.find("listStoragePools", "storagepool", zoneid=zid, name="primary-nfs"):
         cs.run("createStoragePool", zoneid=zid, podid=p["id"], clusterid=cl["id"], name="primary-nfs", scope="cluster", hypervisor="KVM",
