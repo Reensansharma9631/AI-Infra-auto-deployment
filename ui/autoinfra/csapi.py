@@ -213,6 +213,20 @@ def set_config(cs, name, value):
     return True
 
 
+CPVM_STANDBY_DEFAULT = "10"     # CloudStack's default consoleproxy.capacity.standby
+
+
+def ensure_console_proxies(cs, n, log=print):
+    """CloudStack starts console proxies until their free session capacity reaches consoleproxy.capacity.standby; each proxy
+    carries consoleproxy.session.max sessions. For n proxies: standby = (n-1) * session.max + 1. n=1 = CloudStack's default."""
+    cur = next((c for c in cs.items("listConfigurations", "configuration", name="consoleproxy.session.max")
+                if c.get("name") == "consoleproxy.session.max"), None)
+    per = int((cur or {}).get("value") or 50)
+    want = str((n - 1) * per + 1) if n > 1 else CPVM_STANDBY_DEFAULT
+    if set_config(cs, "consoleproxy.capacity.standby", want):
+        log(f"[zone] console proxies: {n} (consoleproxy.capacity.standby = {want}, {per} sessions per proxy)")
+
+
 def bootstrap_zone(cs, spec, log=print):
     """Advanced zone with VLAN isolation. Every object is looked up by name first (safe to re-run)."""
     z, pod, pub = spec["zone"], spec["pod"], spec["public"]
@@ -286,6 +300,7 @@ def bootstrap_zone(cs, spec, log=print):
         if not cs.find("listImageStores", "imagestore", zoneid=zid, name=x["name"]):
             cs.run("addImageStore", zoneid=zid, name=x["name"], provider="NFS", url=f"nfs://{x['nfs']}")
             log(f"[zone] secondary storage {x['name']} added (nfs://{x['nfs']})")
+    ensure_console_proxies(cs, int(spec.get("console_proxies") or 1), log)
     if spec.get("management_vip") and set_config(cs, "host", spec["management_vip"]):
         log(f"[zone] global setting host = {spec['management_vip']}")
     if spec.get("offline"):

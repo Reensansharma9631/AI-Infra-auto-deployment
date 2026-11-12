@@ -20,7 +20,12 @@ def master_net_helper():
     p = os.environ.get("AUTOINFRA_MASTER_NET")
     if p is None:
         p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "master", "autoinfra-master-net"))
-        if not (os.path.exists(p) and os.path.exists("/etc/systemd/system/autoinfra-master-net.path")):
+        unit = "/etc/systemd/system/autoinfra-master-net.path"
+        try:     # only when the installed root helper watches THIS installation's data dir (not tests / other copies)
+            watches = os.path.join(db.data_dir(), "master-net", "request.json") in open(unit).read()
+        except OSError:
+            watches = False
+        if not (os.path.exists(p) and watches):
             return None
     return p or None
 

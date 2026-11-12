@@ -41,7 +41,8 @@
       </form>
       <form class="pane" data-step="systemvm"><h2>System VMs</h2><div class="errs"></div>
         <div class="row"><div class="f"><label>Hypervisor</label><select name="hypervisor"><option>KVM</option></select></div>
-          <div class="f"><label>System VM template (from the master repository)</label><select name="template" id="tpl-sel"><option value="">- choose -</option></select></div></div>
+          <div class="f"><label>System VM template (from the master repository)</label><select name="template" id="tpl-sel"><option value="">- choose -</option></select></div>
+          <div class="f" data-err="console_proxies"><label>Console proxies (CPVM) - optional extra for redundancy</label><select name="console_proxies" data-num><option value="1">1 (default)</option><option value="2">2</option><option value="3">3</option></select></div></div>
         <p class="hint">Upload <span class="mono">systemvmtemplate-*-kvm.qcow2.bz2</span> into the <b>cloudstack</b> or <b>templates</b> repository first. It is seeded into secondary storage with <span class="mono">cloud-install-sys-tmplt</span>.</p>
       </form>
       <form class="pane" data-step="zone"><h2>Zone &amp; Pod (Advanced networking, VLAN isolation)</h2><div class="errs"></div>

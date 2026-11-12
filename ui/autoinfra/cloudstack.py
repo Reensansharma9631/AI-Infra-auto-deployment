@@ -19,7 +19,7 @@ DEFAULTS = {
                    "gateway": "", "timezone": "Asia/Kolkata", "ntp": "", "ssl": True, "firewall": True, "usage": False},
     "database": {"strategy": "gtid_agent", "host_ids": [], "vip": "", "port": 3306},
     "mq": {"enabled": False, "host_ids": []},
-    "systemvm": {"template": "", "hypervisor": "KVM"},
+    "systemvm": {"template": "", "hypervisor": "KVM", "console_proxies": 1},   # 2-3 = extra CPVMs for redundancy (optional)
     "zone": {"name": "Zone-1", "dns1": "", "dns2": "", "internal_dns1": "", "vlan_range": "100-200", "guest_cidr": "10.1.1.0/24",
              "pod_name": "Pod-1", "pod_gateway": "", "pod_netmask": "255.255.255.0", "pod_start": "", "pod_end": "",
              "public_gateway": "", "public_netmask": "255.255.255.0", "public_start": "", "public_end": "", "public_vlan": "untagged",
@@ -127,7 +127,8 @@ def validate(step, d, full=None):
             if err:
                 e["host_ids"] = err
     elif step == "systemvm":
-        e = V.collect(("hypervisor", V.choice(d.get("hypervisor"), ["KVM"], "hypervisor")))
+        e = V.collect(("hypervisor", V.choice(d.get("hypervisor"), ["KVM"], "hypervisor")),
+                      ("console_proxies", V.int_between(d.get("console_proxies", 1), 1, 3, "console proxies")))
         t = d.get("template", "")
         if t and not db.one("SELECT id FROM repo_items WHERE repo IN ('cloudstack','templates') AND path=?", (t,)):
             e["template"] = "template not found in the master repository (upload it first)"
@@ -354,6 +355,7 @@ def zone_spec(s, kvm_password=None):
             "clusters": clusters, "primary_nfs": f"{c['primary_server']}{c['primary_path']}",
             "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": mgmt_host_setting(s),
             "offline": s["requirements"].get("mode", "offline") == "offline",
+            "console_proxies": int(s["systemvm"].get("console_proxies") or 1),
             "extra_primary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "primary"],
             "extra_secondary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "secondary"]}
 

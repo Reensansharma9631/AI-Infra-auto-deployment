@@ -759,3 +759,25 @@ def test_offline_removes_internet_sample_template(app, operator, lab, cs_mock, m
     j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
     assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
     assert sum(t["templatetype"] == "BUILTIN" for t in cs_mock.templates.values()) == left
+
+
+
+@pytest.mark.parametrize("n,standby", [(1, "10"), (2, "51"), (3, "101")])
+def test_console_proxy_count_sets_standby_capacity(app, operator, lab, cs_mock, n, standby):
+    fill(operator, lab, **_single(lab), systemvm={"template": "", "hypervisor": "KVM", "console_proxies": n})
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    if n == 1:
+        cs_mock.config["consoleproxy.capacity.standby"] = "51"      # back to 1 resets CloudStack's default
+    j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
+    assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert cs_mock.config["consoleproxy.capacity.standby"] == standby
+
+
+def test_console_proxy_count_validation(operator, lab):
+    fill(operator, lab)
+    for bad in (0, 4, "x"):
+        r = operator.post("/api/cs/wizard/systemvm", json={"console_proxies": bad})
+        assert r.status_code == 400 and "console_proxies" in r.get_json()["fields"], bad

@@ -83,6 +83,15 @@ def main():
     stores = cs.items("listImageStores", "imagestore", zoneid=zid)
     check("secondary storage present", stores, [s["name"] for s in stores])
     svms = cs.items("listSystemVms", "systemvm", zoneid=zid)
+    want_cp = int(((get("cs_wizard") or {}).get("systemvm") or {}).get("console_proxies") or 1)
+    cps = [v for v in svms if v.get("systemvmtype") == "consoleproxy"]
+    if want_cp > 1:     # extra proxies are started by CloudStack's capacity scan: give it time
+        wait("cpvms", lambda: len([v for v in cs.items("listSystemVms", "systemvm", zoneid=zid, systemvmtype="consoleproxy")
+                                   if v["state"] == "Running" and v.get("agentstate") == "Up"]) >= want_cp, 900, 15)
+        svms = cs.items("listSystemVms", "systemvm", zoneid=zid)
+        cps = [v for v in svms if v.get("systemvmtype") == "consoleproxy"]
+    check(f"console proxies Running/Up >= {want_cp} (wizard setting)",
+          len([v for v in cps if v["state"] == "Running" and v.get("agentstate") == "Up"]) >= want_cp, [v["name"] for v in cps])
     check("SSVM and CPVM Running, agents Up", len(svms) >= 2 and all(v["state"] == "Running" and v.get("agentstate") == "Up" for v in svms),
           {v["name"]: f"{v['state']}/{v.get('agentstate')}" for v in svms})
 

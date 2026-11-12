@@ -159,3 +159,14 @@ def test_installer_uses_path_unit_not_sudo():
     inst = (ROOT / "master/install-autoinfra.sh").read_text()
     assert "autoinfra-master-net.path" in inst and "PathChanged=$DATA/master-net/request.json" in inst and "run-request" in inst
     assert "NOPASSWD" not in inst and "rm -f /etc/sudoers.d/autoinfra" in inst
+
+
+
+def test_helper_ignored_when_the_path_unit_watches_another_data_dir(app, monkeypatch):
+    """Real master: the path unit watches /var/lib/autoinfra; a test/dev copy with its own data dir must not wait for it."""
+    from autoinfra import inventory
+    monkeypatch.delenv("AUTOINFRA_MASTER_NET", raising=False)
+    with app.app_context():
+        assert inventory.master_net_helper() is None
+        ok, out = inventory.master_net("dns-update")
+    assert not ok and "not installed" in out
