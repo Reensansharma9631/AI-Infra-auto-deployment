@@ -37,6 +37,10 @@ Layout deployed through the UI API (the same calls the wizard makes):
   success, 0 changed; smoke test **PASS 9/9** (VM on nfs-01 this time, router on nfs-01). Blocked attempts seen: only the
   nodes' resolver asking 8.8.8.8 (5 lookups) - no package, image or template traffic.
 
+- **DNS for the estate**: dnsmasq on the master (installer), inventory records, zone DNS = master; all three nodes resolve
+  `kvm-01` / `nfs-01.autoinfra.local` through the master and get *refused* for internet names (job 35, air gap still on).
+  Covers Ubuntu 24.04 images with and without systemd-resolved (nfs-01 has none).
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -46,8 +50,9 @@ Layout deployed through the UI API (the same calls the wizard makes):
 
 ## NOT VERIFIED
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
-- DNS service on the master for the zone (zone DNS points at the master, which has no DNS server; system VMs work, names don't resolve).
-- The master's own route to the internal subnets (console proxy / public IPs from the master or your desktop).
+- **The master's own route to the internal subnets** - the job step exists but the service runs with NoNewPrivileges, so its
+  `sudo` call is refused (job 35 warning). Planned fix: a root-owned systemd path unit runs `autoinfra-master-net` from a request
+  file (no sudo). Until then: `ip route replace 10.200.0.0/24 via 172.27.15.240; ip route replace 10.201.0.0/24 via 172.27.15.240` on the master.
 - The Components page "Management Server" card alone (FIXES #13, known broken).
 - Browser e2e suite (Playwright not installed on this master).
 - Usage server, SSL (nginx) in front of the management UI, Zabbix monitoring on CloudStack.
