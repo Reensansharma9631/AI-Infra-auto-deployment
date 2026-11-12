@@ -743,3 +743,16 @@ def test_restart_playbook_only_restarts_on_a_new_host_setting():
     pb = _y.safe_load((_p.Path(__file__).resolve().parent.parent / "ansible/27-cloudstack-mgmt-restart.yml").read_text())
     tasks = {t["name"]: t for t in pb[0]["tasks"]}
     assert "cs_host_setting" in str(tasks["Remember the 'host' setting this server was restarted for"]) and tasks["Restart"]["when"] == "hs is changed"
+
+
+
+@pytest.mark.parametrize("mode,left", [("offline", 0), ("online", 1)])
+def test_offline_removes_internet_sample_template(app, operator, lab, cs_mock, mode, left):
+    fill(operator, lab, **_single(lab), requirements={"mode": mode, "version": "4.22.0", "os": "ubuntu-24.04"})
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
+    assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert sum(t["templatetype"] == "BUILTIN" for t in cs_mock.templates.values()) == left

@@ -136,7 +136,11 @@ def make_server(S, port=0):
         def c_listcapabilities(self, q): return {"capability": {"cloudstackversion": "4.22.0.0"}}
         def c_listzones(self, q): return self._list(S.zones, "zone", q, "name")
         def c_createzone(self, q):
-            z = {"id": nid(), "name": q["name"], "networktype": q["networktype"], "allocationstate": "Disabled"}; S.zones[z["id"]] = z; return {"zone": z}
+            z = {"id": nid(), "name": q["name"], "networktype": q["networktype"], "allocationstate": "Disabled"}; S.zones[z["id"]] = z
+            # like CloudStack: a BUILTIN sample template that is downloaded from download.cloudstack.org (never, offline)
+            t = {"id": nid(), "name": "CentOS 5.5(64-bit) no GUI (KVM)", "templatetype": "BUILTIN", "isready": False, "zoneid": z["id"],
+                 "status": "Processing"}; S.templates[t["id"]] = t
+            return {"zone": z}
         def c_updatezone(self, q): S.zones[q["id"]]["allocationstate"] = q.get("allocationstate", "Enabled"); return {"zone": S.zones[q["id"]]}
         def c_listphysicalnetworks(self, q): return self._list(S.pns, "physicalnetwork", q, "zoneid", "name")
         def c_createphysicalnetwork(self, q):

@@ -288,6 +288,13 @@ def bootstrap_zone(cs, spec, log=print):
             log(f"[zone] secondary storage {x['name']} added (nfs://{x['nfs']})")
     if spec.get("management_vip") and set_config(cs, "host", spec["management_vip"]):
         log(f"[zone] global setting host = {spec['management_vip']}")
+    if spec.get("offline"):
+        # CloudStack registers a BUILTIN sample template (CentOS 5.5) that its SSVM downloads from download.cloudstack.org;
+        # offline that fails forever ("Failed to register template ... Unable to resolve download.cloudstack.org", real lab)
+        for t in cs.items("listTemplates", "template", templatefilter="all", zoneid=zid):
+            if t.get("templatetype") == "BUILTIN" and not t.get("isready"):
+                cs.run("deleteTemplate", id=t["id"], zoneid=zid)
+                log(f"[zone] removed the internet-only sample template '{t.get('name')}' (offline site)")
     if zone.get("allocationstate") != "Enabled":
         cs.run("updateZone", id=zid, allocationstate="Enabled")
         log("[zone] zone enabled")

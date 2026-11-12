@@ -349,6 +349,7 @@ def zone_spec(s, kvm_password=None):
             "kvm_labels": {"management": z["label_mgmt"], "guest": z["label_guest"], "public": z["label_public"]},
             "clusters": clusters, "primary_nfs": f"{c['primary_server']}{c['primary_path']}",
             "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": mgmt_host_setting(s),
+            "offline": s["requirements"].get("mode", "offline") == "offline",
             "extra_primary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "primary"],
             "extra_secondary": [{"name": x["name"], "nfs": f"{x['server']}{x['path']}"} for x in c.get("extra_storage") or [] if x["kind"] == "secondary"]}
 
