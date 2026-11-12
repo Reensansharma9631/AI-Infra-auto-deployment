@@ -60,10 +60,14 @@ def test_common_role_points_nodes_at_the_master_dns():
     tasks = yaml.safe_load((ROOT / "ansible/roles/common/tasks/main.yml").read_text())
     deb = next(t for t in tasks if "systemd-resolved drop-in" in t["name"])
     rh = next(t for t in tasks if "NetworkManager global DNS" in t["name"])
+    plain = next(t for t in tasks if "no resolver daemon" in t["name"])     # real lab: nfs-01 is Ubuntu 24.04 WITHOUT systemd-resolved
     assert "DNS={{ master_ip }}" in deb["ansible.builtin.copy"]["content"] and "Domains=~." in deb["ansible.builtin.copy"]["content"]
     assert "servers={{ master_ip }}" in rh["ansible.builtin.copy"]["content"]
-    for t in (deb, rh):
-        assert "autoinfra_node_dns" in t["when"] and "os_family" in t["when"]
+    assert "nameserver {{ master_ip }}" in plain["ansible.builtin.copy"]["content"] and plain["ansible.builtin.copy"]["follow"] is False
+    for t, b in ((deb, "resolved"), (rh, "networkmanager"), (plain, "file")):
+        assert "autoinfra_node_dns" in t["when"] and f"== '{b}'" in t["when"]
+    probe = next(t for t in tasks if t["name"].startswith("Which resolver manages"))
+    assert "systemd-resolved.service" in probe["ansible.builtin.shell"] and "NetworkManager" in probe["ansible.builtin.shell"]
     handlers = {h["name"]: h for h in yaml.safe_load((ROOT / "ansible/roles/common/handlers/main.yml").read_text())}
     assert "autoinfra_services" in str(handlers["restart systemd-resolved"]["when"]) and "autoinfra_services" in str(handlers["reload NetworkManager"]["when"])
 

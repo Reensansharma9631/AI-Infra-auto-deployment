@@ -28,27 +28,46 @@
       {% endfor %}
   tags: hosts
 
-- name: Resolver drop-in directory
-  ansible.builtin.file: {path: "{{ '/etc/systemd/resolved.conf.d' if ansible_facts['os_family'] == 'Debian' else '/etc/NetworkManager/conf.d' }}", state: directory, mode: "0755"}
+- name: Which resolver manages this node (systemd-resolved / NetworkManager / a plain /etc/resolv.conf)
+  ansible.builtin.shell: |
+    if systemctl list-unit-files systemd-resolved.service 2>/dev/null | grep -q systemd-resolved; then echo resolved
+    elif systemctl is-active --quiet NetworkManager 2>/dev/null; then echo networkmanager
+    else echo file; fi
+  register: dns_backend
+  changed_when: false
   when: autoinfra_node_dns | bool and master_ip is defined
   tags: dns
 
-- name: "Resolver -> the master's DNS (Ubuntu - systemd-resolved drop-in)"
+- name: Resolver drop-in directory
+  ansible.builtin.file: {path: "{{ '/etc/systemd/resolved.conf.d' if dns_backend.stdout | trim == 'resolved' else '/etc/NetworkManager/conf.d' }}", state: directory, mode: "0755"}
+  when: autoinfra_node_dns | bool and master_ip is defined and dns_backend.stdout | trim in ['resolved', 'networkmanager']
+  tags: dns
+
+- name: Resolver -> the master's DNS (systemd-resolved drop-in)
   ansible.builtin.copy:
     dest: /etc/systemd/resolved.conf.d/autoinfra.conf
     content: "# managed by AutoInfra - the master serves DNS for the estate\n[Resolve]\nDNS={{ master_ip }}\nDomains=~.\n"
     mode: "0644"
-  when: autoinfra_node_dns | bool and master_ip is defined and ansible_facts['os_family'] == 'Debian'
+  when: autoinfra_node_dns | bool and master_ip is defined and dns_backend.stdout | trim == 'resolved'
   notify: restart systemd-resolved
   tags: dns
 
-- name: "Resolver -> the master's DNS (RHEL family - NetworkManager global DNS)"
+- name: Resolver -> the master's DNS (NetworkManager global DNS)
   ansible.builtin.copy:
     dest: /etc/NetworkManager/conf.d/90-autoinfra-dns.conf
     content: "# managed by AutoInfra - the master serves DNS for the estate\n[global-dns-domain-*]\nservers={{ master_ip }}\n"
     mode: "0644"
-  when: autoinfra_node_dns | bool and master_ip is defined and ansible_facts['os_family'] == 'RedHat'
+  when: autoinfra_node_dns | bool and master_ip is defined and dns_backend.stdout | trim == 'networkmanager'
   notify: reload NetworkManager
+  tags: dns
+
+- name: Resolver -> the master's DNS (no resolver daemon - Ubuntu images without systemd-resolved; plain /etc/resolv.conf)
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: "# managed by AutoInfra - the master serves DNS for the estate\nnameserver {{ master_ip }}\nsearch {{ autoinfra_dns_domain | default('autoinfra.local') }}\n"
+    mode: "0644"
+    follow: false
+  when: autoinfra_node_dns | bool and master_ip is defined and dns_backend.stdout | trim == 'file'
   tags: dns
 
 - name: Base packages
