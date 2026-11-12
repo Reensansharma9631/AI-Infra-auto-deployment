@@ -682,8 +682,8 @@ def test_two_mgmt_without_vip_uses_agent_lb(app, operator, lab, cs_mock):
     assert "21-cloudstack-lb.yml" not in pbs and pbs[-1] == "27-cloudstack-mgmt-restart.yml"
     assert cs_mock.config["host"] == "10.0.0.10,10.0.0.11"
     names = [st["name"] for st in j["steps"]]
-    assert names.index("Point CloudStack at the management VIP / servers (global setting 'host')") < names.index(
-        "Restart management servers (apply the 'host' setting)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")
+    assert names.index("Apply CloudStack global settings (management VIP / servers, console proxies)") < names.index(
+        "Restart management servers (apply the global settings)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")
 
 
 # ---------------------------------------------------------------- more primary / secondary storage (several NFS servers)
@@ -745,7 +745,7 @@ def test_restart_playbook_only_restarts_on_a_new_host_setting():
     import yaml as _y, pathlib as _p
     pb = _y.safe_load((_p.Path(__file__).resolve().parent.parent / "ansible/27-cloudstack-mgmt-restart.yml").read_text())
     tasks = {t["name"]: t for t in pb[0]["tasks"]}
-    assert "cs_host_setting" in str(tasks["Remember the 'host' setting this server was restarted for"]) and tasks["Restart"]["when"] == "hs is changed"
+    assert "cs_host_setting" in str(tasks["Remember the settings this server was restarted for"]) and tasks["Restart"]["when"] == "hs is changed"
 
 
 
@@ -781,3 +781,23 @@ def test_console_proxy_count_validation(operator, lab):
     for bad in (0, 4, "x"):
         r = operator.post("/api/cs/wizard/systemvm", json={"console_proxies": bad})
         assert r.status_code == 400 and "console_proxies" in r.get_json()["fields"], bad
+
+
+
+def test_extra_console_proxies_add_the_restart_step_before_the_zone(app, operator, lab, cs_mock):
+    """consoleproxy.capacity.standby is not dynamic (CloudStack 4.22.1.1 ConfigKey, verified in the jar): it must be set
+    before a management-server restart, also with a single management server."""
+    fill(operator, lab, **_single(lab), systemvm={"template": "", "hypervisor": "KVM", "console_proxies": 2})
+    from autoinfra import cloudstack, db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+        s = cloudstack.state()
+        assert not cloudstack.needs_host_setting(s) and cloudstack.needs_restart(s)
+        assert cloudstack.extra_vars(s)["cs_host_setting"] == "10.0.0.10|cpvm=2"
+    j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
+    assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    names = [st["name"] for st in j["steps"]]
+    assert names.index("Apply CloudStack global settings (management VIP / servers, console proxies)") < names.index(
+        "Restart management servers (apply the global settings)") < names.index("Configure zones, pods, clusters, hosts and storage (CloudStack API)")
+    assert cs_mock.config["consoleproxy.capacity.standby"] == "51"

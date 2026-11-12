@@ -1,5 +1,6 @@
 ---
-# Restart the management servers one by one after the global setting 'host' (VIP or server list) changed.
+# Restart the management servers one by one after non-dynamic global settings changed: 'host' (VIP or server list) and
+# consoleproxy.capacity.standby (number of console proxies) - cs_host_setting = '<host>|cpvm=<n>'.
 # Idempotent: the applied value is remembered on each server; a re-run with the same value restarts nothing.
 - name: Restart CloudStack management servers
   hosts: cs_mgmt
@@ -7,7 +8,7 @@
   gather_facts: false
   serial: 1
   tasks:
-    - name: Remember the 'host' setting this server was restarted for
+    - name: Remember the settings this server was restarted for
       ansible.builtin.copy:
         dest: /etc/cloudstack/management/.airgap-host-setting
         content: "{{ cs_host_setting | default('') }}\n"

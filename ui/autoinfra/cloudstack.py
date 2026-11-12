@@ -290,7 +290,7 @@ def extra_vars(s):
         "kvm_manage_network": bool(s["cluster"].get("auto_bridge", True)),
         "kvm_required_bridges": sorted({z.get(k) for k in ("label_mgmt", "label_guest", "label_public") if z.get(k)}),
         "nginx_hosts": "cs_mgmt", "zabbix_agent_hosts": "all", "cs_usage_hosts": "cs_mgmt[0]",
-        "cs_host_setting": mgmt_host_setting(s),
+        "cs_host_setting": f"{mgmt_host_setting(s)}|cpvm={console_proxies(s)}",   # the restart playbook restarts when this changes
     }
     ev.update(internal_net_vars(s, hosts))
     return ev
@@ -390,6 +390,15 @@ def mgmt_host_setting(s):
     return s["management"].get("vip") or ",".join(ips)
 
 
+def console_proxies(s):
+    return int(s["systemvm"].get("console_proxies") or 1)
+
+
+def needs_restart(s):
+    """consoleproxy.capacity.standby is not dynamic in CloudStack 4.22 (read at start) - like 'host' it needs a restart."""
+    return needs_host_setting(s) or console_proxies(s) > 1
+
+
 def needs_host_setting(s):
     """The setting must be in place BEFORE KVM hosts are added and the servers restarted afterwards."""
     return needs_lb(s) or len(s["management"]["host_ids"]) > 1
@@ -444,9 +453,10 @@ def _api_session(log, url, admin_user, admin_password, wait=None):
 
 
 @jobs.register("cs_api_prepare")
-def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
+def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None, console_proxies=1):
     url = url or db.get_setting("cs_api_url") or f"http://{vip.split(',')[0]}:8080"
     cs = _api_session(log, url, admin_user, admin_password)
+    csapi.ensure_console_proxies(cs, int(console_proxies or 1), log)
     if csapi.set_config(cs, "host", vip):     # pushing a new value to every agent takes a while; unchanged = no call
         log(f"[api] global setting host = {vip} (management servers are restarted next)")
     else:
@@ -558,13 +568,13 @@ def deploy():
     used = {i for ids in grp.values() for i in ids}
     hosts = [h for h in db.q("SELECT * FROM hosts") if h["id"] in used]      # 'hosts: all' plays must not touch unrelated machines
     hosts = [dict(h, roles="") for h in hosts]                               # groups come from the wizard only, not from host roles
-    pbs = plan(s) + ([("27-cloudstack-mgmt-restart.yml", "Restart management servers (apply the 'host' setting)")] if needs_host_setting(s) else [])
+    pbs = plan(s) + ([("27-cloudstack-mgmt-restart.yml", "Restart management servers (apply the global settings)")] if needs_restart(s) else [])
     steps, wd = inventory.playbook_steps(pbs, hosts, extra_vars=extra_vars(s), extra_groups=grp)
     kvm_pw = j.get("kvm_password") if s["cluster"].get("kvm_auth") == "password" else None
-    if needs_host_setting(s):   # agents/system VMs must know the VIP or every server: set it BEFORE hosts are added, then restart
+    if needs_restart(s):   # 'host' (VIP / every server) and the CPVM capacity: set BEFORE hosts are added, then restart
         restart = steps.pop()
-        steps.append({"name": "Point CloudStack at the management VIP / servers (global setting 'host')", "fn": "cs_api_prepare",
-                      "args": {"vip": mgmt_host_setting(s), "admin_password": j.get("admin_password")}})
+        steps.append({"name": "Apply CloudStack global settings (management VIP / servers, console proxies)", "fn": "cs_api_prepare",
+                      "args": {"vip": mgmt_host_setting(s), "console_proxies": console_proxies(s), "admin_password": j.get("admin_password")}})
         steps.append(restart)
     steps.append({"name": "Configure zones, pods, clusters, hosts and storage (CloudStack API)", "fn": "cs_zone_bootstrap",
                   "args": {"spec": zone_spec(s, kvm_pw), "admin_password": j.get("admin_password")}})
