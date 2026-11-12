@@ -44,3 +44,8 @@ heat-api-cfn
 heat-engine
 iscsid
 tgtd
+ovn-sb-db-relay
+neutron-openvswitch-agent
+neutron-l3-agent
+neutron-dhcp-agent
+multipathd

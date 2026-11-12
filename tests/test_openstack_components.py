@@ -1,5 +1,5 @@
 """OpenStack wizard (validation, generated Kolla files, deploy job with a kolla-ansible stand-in) and component deployments."""
-import json, os
+import json, os, pathlib
 
 import pytest
 import yaml
@@ -489,3 +489,26 @@ def test_localhost_never_escalates(operator, oslab):
     os_fill(operator, oslab)
     m = operator.get("/api/os/preview").get_json()["multinode"]
     assert "[deployment]\nlocalhost ansible_connection=local ansible_become=false" in m
+
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+KOLLA_ROLES = pathlib.Path("/opt/airgap/venv-kolla/share/kolla-ansible/ansible/roles")
+# roles behind the options the wizard offers (core services, OVN or Open vSwitch, Cinder LVM/NFS, Heat, Horizon, HAProxy/keepalived)
+WIZARD_ROLES = ["cron", "fluentd", "mariadb", "memcached", "rabbitmq", "keystone", "glance", "placement", "nova", "nova-cell", "neutron",
+                "ovn-controller", "ovn-db", "openvswitch", "horizon", "heat", "cinder", "iscsi", "multipathd", "proxysql", "loadbalancer"]
+OPTIONAL_IMAGES = {"ironic-neutron-agent", "letsencrypt-lego", "neutron-bgp-dragent", "neutron-infoblox-ipam-agent", "neutron-metering-agent",
+                   "neutron-mlnx-agent", "neutron-ovn-vpn-agent", "neutron-sriov-agent", "nova-compute-ironic", "nova-serialproxy",
+                   "nova-spicehtml5proxy"}     # features the wizard does not offer
+
+
+@pytest.mark.skipif(not KOLLA_ROLES.is_dir(), reason="needs an installed kolla-ansible (master/install-kolla-tools.sh)")
+def test_image_list_covers_every_wizard_option():
+    """Real lab job 44: 'image does not exist: .../ovn-sb-db-relay' - the hand-written list missed an image Kolla 2026.1 needs."""
+    import re as _re
+    need = set()
+    for r in WIZARD_ROLES:
+        f = KOLLA_ROLES / r / "defaults" / "main.yml"
+        if f.exists():
+            need |= {m.group(1) for m in _re.finditer(r'_image:\s*"\{\{\s*docker_image_url\s*\}\}([a-z0-9][a-z0-9._-]*)"', f.read_text())}
+    have = {l.strip() for l in (ROOT / "online/lists/openstack-images.txt").read_text().splitlines() if l.strip() and not l.startswith("#")}
+    assert not (need - have - OPTIONAL_IMAGES), sorted(need - have - OPTIONAL_IMAGES)
