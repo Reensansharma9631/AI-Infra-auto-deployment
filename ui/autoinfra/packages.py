@@ -601,11 +601,33 @@ def available_names():
     return have
 
 
+def registry_repos():
+    """Repositories in the master's image registry (http://127.0.0.1:5000 by default); empty when it does not answer."""
+    import urllib.request
+    url = (os.environ.get("AUTOINFRA_REGISTRY_URL") or "http://127.0.0.1:5000").rstrip("/") + "/v2/_catalog?n=1000"
+    try:
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url, timeout=3) as r:
+            return set(json.load(r).get("repositories") or [])
+    except (OSError, ValueError):
+        return set()
+
+
 def presence(product, family):
     have = available_names()
     files = [r["path"] for r in db.q("SELECT path FROM repo_items WHERE kind IN ('file','whl')")]
     out = []
+    reg = None
     for c in catalog.required(product, family):
+        if c["kind"] == "registry":          # images live in the master's registry (setup-registry.sh), not in a repo
+            reg = registry_repos() if reg is None else reg
+            miss = [n for n in c["names"] if n not in reg]
+            out.append(dict(c, present=not miss, missing=miss, pattern=f"{len(c['names'])} image(s) in the registry"))
+            continue
+        if c["kind"] == "kolla":
+            from . import openstack
+            ok = bool(openstack.kolla_share())
+            out.append(dict(c, present=ok, missing=[] if ok else ["master/install-kolla-tools.sh"], pattern="kolla-ansible on the master"))
+            continue
         if c["kind"] == "file":
             ok = any(fnmatch.fnmatch(os.path.basename(f), os.path.basename(c["pattern"])) or fnmatch.fnmatch(f, "*" + c["pattern"]) for f in files)
             out.append(dict(c, present=ok, missing=[] if ok else [c["pattern"]]))

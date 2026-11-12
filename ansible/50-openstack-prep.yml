@@ -32,13 +32,17 @@
       when: (os_stop_host_libvirt | default(true) | bool) and (autoinfra_services | default(true) | bool)
 
     - name: VMs left running under the host libvirt would keep their qemu processes - none may remain
-      ansible.builtin.shell: pgrep -f 'qemu-system-x86_64.*guest=' | wc -l
+      # '[q]emu': the pattern must not match this shell's own command line (real lab: pkill killed itself)
+      ansible.builtin.shell: pgrep -c -f '[q]emu-system-x86_64.*guest=' || true
       register: os_qemu
       changed_when: false
       failed_when: false
 
     - name: Stop leftover host VMs (CloudStack system VMs/guests; CloudStack restarts them when it is restored)
-      ansible.builtin.shell: pkill -TERM -f 'qemu-system-x86_64.*guest=' ; sleep 10; pkill -KILL -f 'qemu-system-x86_64.*guest=' || true
+      ansible.builtin.shell: |
+        pkill -TERM -f '[q]emu-system-x86_64.*guest=' || true
+        for i in $(seq 30); do pgrep -f '[q]emu-system-x86_64.*guest=' >/dev/null || exit 0; sleep 1; done
+        pkill -KILL -f '[q]emu-system-x86_64.*guest=' || true
       when: (os_stop_host_libvirt | default(true) | bool) and (os_qemu.stdout | default('0') | int) > 0
 
 - name: External (provider) interface on the network nodes

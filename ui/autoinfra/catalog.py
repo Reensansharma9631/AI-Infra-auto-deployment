@@ -27,11 +27,13 @@ PRODUCTS = {
     "openstack": {
         "label": "OpenStack", "versions": ["2026.1", "2025.2", "2024.1"], "repo": "openstack",
         "components": [
-            {"id": "kolla-ansible", "label": "Kolla-Ansible + Python wheels", "file": "wheels/*.whl", "size_mb": 300, "kind": "file"},
-            {"id": "kolla-images", "label": "Kolla container images (registry)", "file": "images/*.tar", "size_mb": 6500, "kind": "file"},
-            {"id": "docker", "label": "Docker engine", "deb": ["docker.io"], "rpm": ["docker-ce", "containerd.io"], "size_mb": 120},
-            {"id": "mariadb", "label": "MariaDB (in Kolla images)", "kind": "file", "file": "images/*mariadb*.tar", "size_mb": 300},
-            {"id": "rabbitmq", "label": "RabbitMQ (in Kolla images)", "kind": "file", "file": "images/*rabbitmq*.tar", "size_mb": 120},
+            {"id": "kolla-ansible", "label": "Kolla-Ansible on the master (install-kolla-tools.sh)", "kind": "kolla", "size_mb": 300},
+            {"id": "kolla-images", "label": "Kolla images in the master registry", "kind": "registry", "images": ["openstack.kolla/keystone",
+             "openstack.kolla/nova-compute", "openstack.kolla/neutron-server", "openstack.kolla/glance-api", "openstack.kolla/horizon"], "size_mb": 2000},
+            {"id": "podman", "label": "Podman (container engine, no Docker)", "deb": ["podman", "catatonit", "python3-podman"],
+             "rpm": ["podman", "catatonit", "python3-podman"], "size_mb": 60},
+            {"id": "mariadb", "label": "MariaDB (Kolla image)", "kind": "registry", "images": ["openstack.kolla/mariadb-server"], "size_mb": 300},
+            {"id": "rabbitmq", "label": "RabbitMQ (Kolla image)", "kind": "registry", "images": ["openstack.kolla/rabbitmq"], "size_mb": 120},
             {"id": "python3", "label": "Python3 + venv", "deb": ["python3-venv", "python3-pip"], "rpm": ["python3", "python3-pip"], "size_mb": 90},
             {"id": "lvm2", "label": "LVM2 (Cinder)", "deb": ["lvm2", "thin-provisioning-tools"], "rpm": ["lvm2", "device-mapper-persistent-data"], "size_mb": 20},
         ]},
@@ -99,6 +101,8 @@ def required(product, family):
     for c in p["components"]:
         if c.get("kind") == "file":
             out.append({"id": c["id"], "label": c["label"], "kind": "file", "pattern": c["file"], "size_mb": c["size_mb"]})
+        elif c.get("kind") in ("registry", "kolla"):
+            out.append({"id": c["id"], "label": c["label"], "kind": c["kind"], "names": c.get("images", []), "size_mb": c["size_mb"]})
         else:
             out.append({"id": c["id"], "label": c["label"], "kind": "pkg", "names": c.get("rpm" if family == "rhel" else "deb", []),
                         "size_mb": c["size_mb"]})

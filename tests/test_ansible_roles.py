@@ -798,3 +798,11 @@ def test_internal_net_two_hosts_really_connect_over_vxlan(tmp_path):
     finally:
         for n in list(ns) + ["vm"]:
             subprocess.run(["ip", "netns", "del", f"ai-{n}"], capture_output=True)
+
+
+
+def test_openstack_prep_process_patterns_cannot_match_themselves():
+    """pgrep/pkill -f with a plain pattern match their own 'sh -c ...' (real lab: the prep task killed itself, rc -15)."""
+    text = (ANS / "50-openstack-prep.yml").read_text()
+    for m in re.finditer(r"p(?:grep|kill)[^'\n]*-f '([^']+)'", text):
+        assert m.group(1).startswith("[q]emu"), m.group(0)
