@@ -62,4 +62,4 @@ elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1;
   firewall-cmd -q --permanent --add-service=nfs --add-service=mountd --add-service=rpc-bind && firewall-cmd -q --reload
 fi
 command -v restorecon >/dev/null && for p in $NFS_EXPORTS; do restorecon -R "$p" || true; done
-echo "NFS on the master: $(exportfs -v | awk '{print $1}' | sort -u | tr '\n' ' ')- clients: $NFS_CLIENTS"
+echo "NFS on the master: $(exportfs | awk '/^\//{print $1}' | sort -u | tr '\n' ' ')- clients: $NFS_CLIENTS"
