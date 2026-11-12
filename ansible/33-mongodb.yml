@@ -1,0 +1,6 @@
+---
+- name: MongoDB (1 node or 3-node replica set)
+  hosts: mongodb
+  become: true
+  gather_facts: true
+  roles: [mongodb]

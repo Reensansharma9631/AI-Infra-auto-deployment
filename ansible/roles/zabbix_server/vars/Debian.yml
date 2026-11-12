@@ -1,0 +1,5 @@
+---
+zabbix_server_pkgs: [zabbix-server-mysql, zabbix-frontend-php, zabbix-nginx-conf, zabbix-sql-scripts, zabbix-agent2, mysql-server, php8.3-fpm]
+zabbix_php_fpm: php8.3-fpm
+zabbix_nginx_conf: /etc/zabbix/nginx.conf
+mysql_service: mysql

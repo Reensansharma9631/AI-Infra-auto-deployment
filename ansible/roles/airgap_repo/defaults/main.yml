@@ -1,0 +1,4 @@
+---
+airgap_repo_base: "http://{{ master_ip | default('127.0.0.1') }}:8081/repo"
+airgap_repo_names: [core, os, cloudstack, kvm, databases, monitoring, apps, custom]   # fallback when the UI does not pass airgap_deb_repos / airgap_rpm_repos
+airgap_repos: []                    # legacy: extra full apt lines

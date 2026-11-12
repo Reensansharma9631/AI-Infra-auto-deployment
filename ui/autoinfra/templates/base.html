@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<title>{% block title %}AutoInfra{% endblock %} - AutoInfra</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ version }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cpath d='M14 34a9 9 0 1 1 2.2-17.7A12 12 0 0 1 39 20a7 7 0 0 1-1 14z' fill='%231d7bff'/%3E%3C/svg%3E">
+</head>
+<body data-page="{% block page %}{% endblock %}" data-role="{{ me.role if me else '' }}">
+{% include "_icons.html" %}
+{% set p = request.path %}
+<div class="layout" id="layout">
+<aside class="side">
+  <div class="brand"><svg><use href="#i-logo"/></svg><div><b>AutoInfra</b><small>Deploy · Manage · Monitor</small></div></div>
+  <nav class="nav" id="nav">
+    <a href="/" class="{{ 'act' if p == '/' }}">{{ ic('home') }}<span>Dashboard</span></a>
+    <div class="grp {{ 'open' if p.startswith('/packages') }}"><span>{{ ic('box') }}<span>Package Repository</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/packages#upload" data-hash="upload">Upload Packages</a><a href="/packages#online" data-hash="online">Online Download</a>
+        <a href="/packages#repo" data-hash="repo">Repository</a><a href="/packages#jobs" data-hash="jobs">Extract &amp; Verify</a>
+        <a href="/packages#required" data-hash="required">Offline OS / Product Packages</a><a href="/packages#disk" data-hash="disk">Disk Usage</a>
+      </div></div>
+    <div class="grp {{ 'open' if p.startswith('/predeploy') or p.startswith('/hosts') }}"><span>{{ ic('server') }}<span>Pre-Deployment</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/hosts" class="{{ 'act' if p == '/hosts' }}">Host Management</a><a href="/predeploy#test" data-hash="test">Connectivity Test</a>
+        <a href="/predeploy#checks" data-hash="checks">System Checks</a><a href="/predeploy#update" data-hash="update">Update &amp; Upgrade</a>
+        <a href="/predeploy#required" data-hash="required">Required Packages</a><a href="/hosts#groups" data-hash="groups">Host Groups</a>
+      </div></div>
+    <div class="grp {{ 'open' if p.startswith('/cloudstack') }}"><span>{{ ic('cloud') }}<span>CloudStack</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/cloudstack/wizard" class="{{ 'act' if p == '/cloudstack/wizard' }}">Deployment Wizard</a>
+        <a href="/cloudstack/infra#zones" data-hash="zones">Zones &amp; Pods</a><a href="/cloudstack/infra#clusters" data-hash="clusters">Clusters</a>
+        <a href="/cloudstack/infra#hosts" data-hash="hosts">KVM Hosts</a><a href="/cloudstack/infra#storage" data-hash="storage">Storage</a>
+        <a href="/cloudstack/infra#networks" data-hash="networks">Networks</a><a href="/cloudstack/infra#systemvms" data-hash="systemvms">System VMs</a>
+        <a href="/cloudstack/infra#templates" data-hash="templates">Templates</a><a href="/cloudstack/infra#offerings" data-hash="offerings">Service Offerings</a>
+      </div></div>
+    <div class="grp {{ 'open' if p.startswith('/openstack') }}"><span>{{ ic('layers') }}<span>OpenStack</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/openstack/wizard#requirements" data-hash="requirements">Check Requirements</a><a href="/openstack/wizard#nodes" data-hash="nodes">Controller / Compute Nodes</a>
+        <a href="/openstack/wizard#services" data-hash="services">Services</a><a href="/openstack/wizard#network" data-hash="network">Network &amp; Storage</a>
+        <a href="/openstack/wizard#deploy" data-hash="deploy">Deploy &amp; Validate</a>
+      </div></div>
+    <div class="grp {{ 'open' if p.startswith('/components') }}"><span>{{ ic('queue') }}<span>Components</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/components#all" data-hash="all">All Components</a><a href="/components#core" data-hash="core">CloudStack Core</a>
+        <a href="/components#databases" data-hash="databases">Database Deployment</a><a href="/components#monitoring" data-hash="monitoring">Zabbix Monitoring</a>
+        <a href="/components#kvm" data-hash="kvm">KVM Tools</a><a href="/components#apps" data-hash="apps">Applications</a><a href="/components#ai" data-hash="ai">Ollama AI</a>
+      </div></div>
+    <div class="grp {{ 'open' if p.startswith('/monitoring') }}"><span>{{ ic('pulse') }}<span>Monitoring</span><svg class="i chev"><use href="#i-chev"/></svg></span>
+      <div class="sub">
+        <a href="/monitoring#topology" data-hash="topology">Infrastructure View</a><a href="/monitoring#hosts" data-hash="hosts">Hosts &amp; VMs</a>
+        <a href="/monitoring#logs" data-hash="logs">Logs &amp; Events</a><a href="/monitoring#alerts" data-hash="alerts">Alerts</a><a href="/monitoring#zabbix" data-hash="zabbix">Zabbix</a>
+      </div></div>
+    <a href="/ai" class="{{ 'act' if p == '/ai' }}">{{ ic('spark') }}<span>AI Insights (Ollama)</span></a>
+    <a href="/billing" class="{{ 'act' if p == '/billing' }}">{{ ic('wallet') }}<span>Billing &amp; Cost</span></a>
+    <a href="/reports" class="{{ 'act' if p == '/reports' }}">{{ ic('file') }}<span>Reports</span></a>
+    <a href="/jobs" class="{{ 'act' if p == '/jobs' }}">{{ ic('list') }}<span>Deployment Jobs</span></a>
+    {% if can('admin') %}<a href="/audit" class="{{ 'act' if p == '/audit' }}">{{ ic('shield') }}<span>Audit Logs</span></a>{% endif %}
+    <a href="/settings" class="{{ 'act' if p == '/settings' }}">{{ ic('gear') }}<span>Settings</span></a>
+  </nav>
+</aside>
+<div class="main">
+  <header class="top">
+    <button class="burger" id="burger" aria-label="toggle menu">{{ ic('menu') }}</button>
+    <div class="search">{{ ic('search') }}<input id="gsearch" type="text" placeholder="Search hosts, packages, components, jobs..." autocomplete="off"><div class="res" id="gres"></div></div>
+    <div class="sp"></div>
+    <div style="position:relative"><button class="iconbtn" id="bell" aria-label="notifications">{{ ic('bell') }}<span class="badge" id="nbadge" hidden>0</span></button>
+      <div class="menu notif" id="nmenu"></div></div>
+    <a class="iconbtn" href="/settings#help" aria-label="help">{{ ic('help') }}</a>
+    {% if me %}<div class="user" id="umenu-btn"><div class="avatar">{{ ((me.full_name or me.username)[:1] ~ ((me.full_name or '').split(' ')[1][:1] if (me.full_name or '').split(' ')|length > 1 else '')).upper() }}</div>
+      <div><b>{{ me.full_name or me.username }}</b><small>{{ me.role|capitalize }}</small></div>{{ ic('chev') }}
+      <div class="menu" id="umenu"><a href="/settings#account">My account / password</a>
+        <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Sign out</button></form></div></div>{% else %}<a class="btn" href="/login">Sign in</a>{% endif %}
+  </header>
+  <main class="content">{% block content %}{% endblock %}</main>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="{{ url_for('static', filename='core.js') }}?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

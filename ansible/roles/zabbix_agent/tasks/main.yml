@@ -1,0 +1,27 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["10050/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Install Zabbix agent 2 from the local repo
+  ansible.builtin.package: {name: "{{ zabbix_agent_pkgs }}", state: present}
+- name: Agent configuration
+  ansible.builtin.lineinfile:
+    path: "{{ zabbix_agent_conf }}"
+    regexp: "^#?\\s*{{ item.k }}="
+    line: "{{ item.k }}={{ item.v }}"
+    create: true
+    mode: "0644"
+  loop:
+    - {k: Server, v: "{{ zabbix_server | default(master_ip) }}"}
+    - {k: ServerActive, v: "{{ zabbix_server | default(master_ip) }}"}
+    - {k: Hostname, v: "{{ node_hostname | default(inventory_hostname) }}"}
+  notify: restart zabbix-agent2
+- name: Agent running
+  ansible.builtin.service: {name: zabbix-agent2, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool

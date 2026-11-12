@@ -1,0 +1,16 @@
+---
+# 2-3 CloudStack management servers on the HA database VIP. The first one creates the schema and the key,
+# the others receive the same db.properties + key. Deploy 10-cloudstack-db.yml first, then 21-cloudstack-lb.yml.
+- name: First management server
+  hosts: cs_mgmt[0]
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles: [cs_mgmt]
+
+- name: Remaining management servers
+  hosts: cs_mgmt[1:]
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles: [cs_mgmt]

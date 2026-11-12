@@ -1,0 +1,7 @@
+---
+# Zabbix agent 2 on every managed node (component deploy: group zabbix_agent; wizard: all hosts).
+- name: Zabbix agent
+  hosts: "{{ zabbix_agent_hosts | default('zabbix_agent') }}"
+  become: true
+  gather_facts: true
+  roles: [zabbix_agent]

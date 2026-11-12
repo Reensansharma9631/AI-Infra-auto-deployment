@@ -1,0 +1,46 @@
+# One Kolla image per line (name only). Registry (quay.io/openstack.kolla) and tag (2026.1-ubuntu-noble) come from VERSIONS.env.
+# Every name is validated at build time against the installed kolla-ansible (online/inner/validate-kolla-images.py).
+# Design: OVN networking (set neutron_plugin_agent: "ovn"), MariaDB Galera, RabbitMQ, HAProxy+keepalived VIP,
+# core services: keystone glance placement nova neutron cinder(LVM/iSCSI) heat horizon.
+kolla-toolbox
+fluentd
+cron
+haproxy
+haproxy-ssh
+keepalived
+proxysql
+mariadb-server
+rabbitmq
+memcached
+keystone
+keystone-fernet
+keystone-ssh
+httpd
+glance-api
+placement-api
+nova-api
+nova-conductor
+nova-scheduler
+nova-novncproxy
+nova-compute
+nova-libvirt
+nova-ssh
+neutron-server
+neutron-metadata-agent
+neutron-ovn-agent
+openvswitch-db-server
+openvswitch-vswitchd
+ovn-controller
+ovn-nb-db-server
+ovn-sb-db-server
+ovn-northd
+horizon
+cinder-api
+cinder-scheduler
+cinder-volume
+cinder-backup
+heat-api
+heat-api-cfn
+heat-engine
+iscsid
+tgtd

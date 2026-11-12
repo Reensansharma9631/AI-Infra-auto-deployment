@@ -1,0 +1,9 @@
+---
+# Points apt at the master, sets hostname + /etc/hosts, chrony -> master.
+- name: Common baseline for every node
+  hosts: all
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles:
+    - common

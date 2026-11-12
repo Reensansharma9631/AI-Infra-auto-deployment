@@ -1,0 +1,11 @@
+# managed by AutoInfra - offline repositories on the master
+{% for n in (airgap_rpm_repos if airgap_rpm_repos is defined else airgap_repo_names) %}
+[autoinfra-{{ n }}]
+name=AutoInfra {{ n }}
+baseurl={{ airgap_repo_base }}/{{ n }}/rpm/
+enabled=1
+gpgcheck=0
+module_hotfixes=1
+skip_if_unavailable=1
+
+{% endfor %}

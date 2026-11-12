@@ -1,0 +1,45 @@
+---
+# Read-only checks on every node (Ubuntu 24.04/22.04 or RHEL/Rocky/Alma/Oracle 8-9). Fix what it reports first.
+- name: Pre-flight checks on every node
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    preflight_min_free_gb: 20
+    preflight_min_mem_mb: 3500
+  tasks:
+    - name: Supported operating system
+      ansible.builtin.assert:
+        that: >-
+          (ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_version'] in ['24.04', '22.04']) or
+          (ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] in ['8', '9'])
+        fail_msg: "{{ inventory_hostname }} runs {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }} - supported: Ubuntu 24.04/22.04, RHEL/Rocky/Alma/Oracle 8-9"
+        success_msg: "OS ok: {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+
+    - name: Root filesystem free space
+      ansible.builtin.assert:
+        that: (ansible_facts['mounts'] | selectattr('mount','equalto','/') | map(attribute='size_available') | first | default(0) | int) > (preflight_min_free_gb * 1024 * 1024 * 1024)
+        fail_msg: "less than {{ preflight_min_free_gb }} GB free on /"
+      ignore_errors: "{{ preflight_soft | default(false) | bool }}"
+
+    - name: Memory
+      ansible.builtin.assert:
+        that: ansible_facts['memtotal_mb'] | int >= preflight_min_mem_mb
+        fail_msg: "{{ ansible_facts['memtotal_mb'] }} MB RAM, need >= {{ preflight_min_mem_mb }}"
+      ignore_errors: "{{ preflight_soft | default(false) | bool }}"
+
+    - name: Node can reach the master repository
+      ansible.builtin.uri:
+        url: "{{ airgap_repo_base }}/"
+        method: GET
+        status_code: [200, 301, 302, 403]
+        timeout: 10
+      register: repo_check
+      retries: 3
+      delay: 3
+      until: repo_check is succeeded
+      when: airgap_repo_base is defined
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} OK - {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}, {{ ansible_facts['processor_vcpus'] | default('?') }} vCPU, {{ ansible_facts['memtotal_mb'] }} MB RAM"

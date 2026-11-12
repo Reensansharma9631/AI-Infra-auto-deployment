@@ -1,0 +1,24 @@
+{% extends "base.html" %}{% block title %}Host Management{% endblock %}{% block page %}hosts{% endblock %}
+{% block content %}
+<h1>Host Management</h1><p class="sub-h">Inventory of every node the master manages. Roles decide which Ansible groups a host joins.</p>
+<div class="tabs" data-tabs="hm"><button data-t="hosts">{{ ic('server') }} Hosts</button><button data-t="groups">{{ ic('users') }} Host Groups</button><button data-t="key">{{ ic('key') }} Master SSH key</button></div>
+<div class="pane" data-pane="hosts"><div class="card">
+  <div class="flex" style="margin-bottom:12px"><button class="btn" data-open="m-add" data-need="operator">{{ ic('plus') }} Add Host</button>
+    <button class="btn g" data-open="m-csv" data-need="operator">{{ ic('upload') }} Import CSV</button>
+    <input type="text" id="hm-q" placeholder="Filter by IP, hostname, OS" style="max-width:260px">
+    <select id="hm-role" style="max-width:200px"><option value="">All roles</option>{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+    <a class="btn o right" href="/predeploy#test">{{ ic('play') }} Run checks</a></div>
+  <div id="hm-table"></div></div></div>
+<div class="pane" data-pane="groups"><div class="card"><h2>Host Groups</h2><div id="hm-groups"></div></div></div>
+<div class="pane" data-pane="key"><div class="card"><h2>Master public key</h2><p class="hint">Hosts added with a password get this key automatically. To pre-install it yourself: append it to <span class="mono">~/.ssh/authorized_keys</span> of the SSH user.</p>
+  <textarea id="hm-key" readonly rows="3"></textarea></div></div>
+<div class="modal" id="m-edit"><div class="box"><header>Edit host<button data-close>&times;</button></header>
+  <form class="bd" id="f-edit"><div class="errs"></div><input type="hidden" name="id">
+    <div class="row"><div class="f"><label>Hostname</label><input type="text" name="hostname"></div><div class="f"><label>SSH user</label><input type="text" name="ssh_user"></div>
+      <div class="f"><label>SSH port</label><input type="number" name="ssh_port" data-num></div><div class="f"><label>Group</label><input type="text" name="grp"></div></div>
+    <div class="f"><label>Roles</label><div class="row">{% for k, v in roles.items() %}<label class="chk"><input type="checkbox" class="erole-cb" value="{{ k }}"> {{ v }}</label>{% endfor %}</div></div>
+    {% if can('admin') %}<div class="f"><label>Ansible variables for this host (JSON, e.g. {"kvm_bridge_port": "eno1"})</label><textarea id="e-vars" rows="3"></textarea></div>{% endif %}</form>
+  <footer><button class="btn g" data-close>Cancel</button><button class="btn" id="b-edit">Save</button></footer></div></div>
+{% include "_host_modals.html" %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='hosts.js') }}?v={{ version }}"></script>{% endblock %}

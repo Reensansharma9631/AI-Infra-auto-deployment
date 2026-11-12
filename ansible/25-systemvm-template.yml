@@ -1,0 +1,6 @@
+---
+- name: Seed the system VM template into secondary storage (from the first management server)
+  hosts: cs_mgmt[0]
+  become: true
+  gather_facts: true
+  roles: [systemvm_template]

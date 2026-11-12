@@ -1,0 +1,34 @@
+{% extends "base.html" %}{% block title %}Settings{% endblock %}{% block page %}settings{% endblock %}
+{% block content %}
+<h1>Settings</h1><p class="sub-h">Master, integrations, thresholds, users.</p>
+<div class="tabs" data-tabs="st"><button data-t="general">General</button><button data-t="integrations">Integrations</button><button data-t="thresholds">Thresholds &amp; Alerts</button>
+  {% if can('admin') %}<button data-t="users">Users</button>{% endif %}<button data-t="account">My account</button><button data-t="help">Help</button></div>
+<form id="st-form" autocomplete="off">
+<div class="pane" data-pane="general"><div class="card"><h2>Master</h2><div class="errs"></div>
+  <div class="row"><div class="f"><label>Master IP (repositories, NTP, registry)</label><input type="text" name="master_ip"></div><div class="f"><label>Repository base URL</label><input type="text" name="repo_base_url" placeholder="http://MASTER:8081/repo"></div></div>
+  <div class="row"><div class="f"><label>Max extraction size (GB)</label><input type="number" name="max_extract_gb" data-num></div><div class="f"><label>ansible-playbook path</label><input type="text" name="ansible_playbook_bin" placeholder="/opt/autoinfra/venv/bin/ansible-playbook"></div></div>
+  <label class="chk"><input type="checkbox" name="online_mode"> This master has internet access (enables "Fetch Required Packages")</label>
+  <div class="f mt" data-err="ansible_extra_vars"><label>Global Ansible variables for every deployment (JSON object, admin)</label><textarea id="st-ev" rows="3" placeholder='{"ntp_server": "10.0.0.1"}'></textarea></div>
+  <h2 class="mt">Master SSH public key</h2><textarea id="st-key" readonly rows="2"></textarea></div></div>
+<div class="pane" data-pane="integrations"><div class="card"><h2>CloudStack API</h2>
+  <div class="row"><div class="f"><label>API URL</label><input type="text" name="cs_api_url" placeholder="http://10.0.0.20:8080"></div><div class="f"><label>API key</label><input type="text" name="cs_api_key"></div><div class="f"><label>Secret key</label><input type="password" name="cs_secret_key"></div></div>
+  <h2 class="mt">Ollama</h2><div class="row"><div class="f"><label>Ollama URL</label><input type="text" name="ollama_url" placeholder="http://10.0.0.60:11434"></div><div class="f"><label>Default model</label><input type="text" name="ollama_model" placeholder="llama3.1:8b"></div><div class="f"><label>Timeout (s)</label><input type="number" name="ollama_timeout" data-num></div></div>
+  <h2 class="mt">Zabbix</h2><div class="row"><div class="f"><label>Zabbix URL</label><input type="text" name="zabbix_url" placeholder="http://10.0.0.51:8088"></div><div class="f"><label>API token</label><input type="password" name="zabbix_token"></div></div>
+  <h2 class="mt">OpenStack</h2><div class="row"><div class="f"><label>kolla-ansible binary</label><input type="text" name="kolla_ansible_bin"></div><div class="f"><label>kolla-ansible share dir</label><input type="text" name="kolla_share_dir"></div></div></div></div>
+<div class="pane" data-pane="thresholds"><div class="card"><h2>Pre-deployment minimums</h2>
+  <div class="row"><div class="f"><label>Min CPU cores</label><input type="number" id="th-cpu" data-num></div><div class="f"><label>Min memory (MB)</label><input type="number" id="th-mem" data-num></div><div class="f"><label>Min free disk (GB)</label><input type="number" id="th-disk" data-num></div></div>
+  <h2 class="mt">Alert thresholds (%)</h2><div class="row" id="al-rules"></div>
+  <div class="row"><div class="f"><label>Metrics interval (s, 0 = off)</label><input type="number" name="monitor_interval" data-num></div><div class="f"><label>Keep metrics (days)</label><input type="number" name="metrics_retention_days" data-num></div></div></div></div>
+</form>
+<div class="pane" data-pane="users"><div class="card"><h2>Users</h2><div id="us-list"></div>
+  <h2 class="mt">Add user</h2><form id="us-form" autocomplete="off"><div class="errs"></div><div class="row"><div class="f"><label>User name</label><input type="text" name="username"></div><div class="f"><label>Full name</label><input type="text" name="full_name"></div>
+  <div class="f"><label>Password (12+ chars, 3 classes)</label><input type="password" name="password" autocomplete="new-password"></div><div class="f"><label>Role</label><select name="role"><option>viewer</option><option>operator</option><option>admin</option></select></div></div>
+  <button type="button" class="btn" id="us-add">{{ ic('plus') }} Add user</button></form></div></div>
+<div class="pane" data-pane="account"><div class="card"><h2>Change my password</h2><form id="pw-form" autocomplete="off"><div class="errs"></div><div class="row"><div class="f"><label>Current password</label><input type="password" name="current"></div><div class="f"><label>New password</label><input type="password" name="new" autocomplete="new-password"></div></div>
+  <button type="button" class="btn" id="pw-save">Change password</button></form></div></div>
+<div class="pane" data-pane="help"><div class="card"><h2>Help</h2><ol><li>Upload the product bundles in <a href="/packages">Package Repository</a>.</li><li>Add the nodes and run the checks in <a href="/predeploy">Pre-Deployment</a>.</li>
+  <li>Deploy with the <a href="/cloudstack/wizard">CloudStack</a> or <a href="/openstack/wizard">OpenStack</a> wizard, or single <a href="/components">components</a>.</li><li>Watch <a href="/jobs">Deployment Jobs</a>, then <a href="/monitoring">Monitoring</a>.</li></ol>
+  <p class="hint">Service: <span class="mono">systemctl status autoinfra</span> · logs: <span class="mono">journalctl -u autoinfra</span> · data: <span class="mono">/var/lib/autoinfra</span></p></div></div>
+<div class="flex" id="st-save-bar"><button class="btn" id="st-save" data-need="operator">Save settings</button><span class="muted" id="st-msg"></span></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

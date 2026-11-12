@@ -1,0 +1,4 @@
+---
+mongo_port: 27017
+mongo_replset: rs0
+mongo_bind: 0.0.0.0

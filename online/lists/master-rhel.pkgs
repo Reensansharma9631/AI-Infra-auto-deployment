@@ -1,0 +1,16 @@
+# AutoInfra master on RHEL / Rocky / Alma 9 (python3.12 is in AppStream since 9.4)
+nginx
+python3.12
+python3.12-pip
+openssl
+rsync
+unzip
+zip
+curl
+jq
+chrony
+bsdtar
+rpm
+openssh-clients
+policycoreutils-python-utils
+glib2

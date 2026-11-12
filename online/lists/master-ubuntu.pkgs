@@ -1,0 +1,17 @@
+# AutoInfra master on Ubuntu 24.04 (installed from the bundle's own apt repo)
+nginx
+python3
+python3-venv
+openssl
+rsync
+unzip
+zip
+curl
+jq
+chrony
+libarchive-tools
+rpm
+openssh-client
+sshpass
+dpkg-dev
+libglib2.0-0t64

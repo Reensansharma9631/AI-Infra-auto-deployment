@@ -1,0 +1,5 @@
+---
+mysql_pkgs: [mysql-server, mysql, python3-PyMySQL]
+mysql_service: mysqld
+mysql_conf_dir: /etc/my.cnf.d
+mysqld_bin: /usr/libexec/mysqld

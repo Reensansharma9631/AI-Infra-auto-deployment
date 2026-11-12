@@ -1,0 +1,2 @@
+---
+oracle_pkgs: [libaio1t64, unzip, ksh, bc, binutils, make, sysstat]

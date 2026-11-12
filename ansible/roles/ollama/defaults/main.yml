@@ -1,0 +1,5 @@
+---
+ollama_listen: 0.0.0.0:11434
+ollama_model: llama3.1:8b
+ollama_bundle: ollama-linux-amd64.tgz          # in repo 'ollama/files'
+ollama_models_bundle: ollama-models.tar        # optional, contains the models/ directory (blobs + manifests)

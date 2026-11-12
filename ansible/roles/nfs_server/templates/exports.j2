@@ -1,0 +1,5 @@
+# managed by airgap-installer
+{% for e in nfs_exports %}
+{{ e.path }} {% for c in nfs_allowed %}{{ c }}(rw,sync,no_root_squash,no_subtree_check) {% endfor %}
+
+{% endfor %}

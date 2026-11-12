@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}AI Insights (Ollama){% endblock %}{% block page %}ai{% endblock %}
+{% block content %}
+<h1>AI Insights (Ollama)</h1><p class="sub-h">A local LLM answers with your live inventory, metrics, alerts, components and failed job logs as context. Nothing leaves the air-gapped network.</p>
+<div class="tabs" data-tabs="ai"><button data-t="chat">{{ ic('spark') }} Chat</button><button data-t="kb">{{ ic('file') }} Knowledge Base</button><button data-t="reports">{{ ic('dl') }} Generate Reports</button></div>
+<div class="pane" data-pane="chat"><div class="card">
+  <div class="flex"><label style="margin:0">Model</label><select id="ai-model" style="max-width:260px"></select><span class="muted" id="ai-status"></span><button class="btn sm g right" id="ai-clear">Clear history</button></div>
+  <div class="quick">{% for q in quick %}<button>{{ q }}</button>{% endfor %}</div>
+  <div class="chat"><div class="msgs" id="ai-msgs"></div><form id="ai-form"><input type="text" id="ai-in" placeholder="Ask anything about your infrastructure, logs, or reports..." maxlength="4000"><button class="btn">{{ ic('send') }} Send</button></form></div>
+</div></div>
+<div class="pane" data-pane="kb"><div class="card"><h2>Knowledge Base <span class="r"><input type="file" id="kb-file" accept=".txt,.md,.log,.conf,.yml,.yaml,.json"></span></h2>
+  <p class="hint">Runbooks, SOPs and configs added here are searched by keyword and given to the model with your question.</p><div id="kb-list"></div></div></div>
+<div class="pane" data-pane="reports"><div class="card"><h2>Generate Reports</h2><p>Infrastructure report with hosts, components, alerts, jobs and cost.</p>
+  <div class="flex"><button class="btn" data-rep="pdf">Generate PDF Report</button><button class="btn o" data-rep="xlsx">Export to Excel</button><a href="/reports">All reports</a></div><div id="ai-rep" class="mt"></div></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

@@ -1,0 +1,27 @@
+---
+- name: Inputs
+  ansible.builtin.assert:
+    that:
+      - systemvm_template_url | default('') | length > 0
+      - systemvm_secondary | default('') | length > 0
+    fail_msg: "choose the system VM template (wizard step System VMs) and the secondary storage"
+    quiet: true
+- name: NFS client tools
+  ansible.builtin.package:
+    name: "{{ ['nfs-common'] if ansible_facts['os_family'] == 'Debian' else ['nfs-utils'] }}"
+    state: present
+- name: Mount point
+  ansible.builtin.file: {path: /mnt/autoinfra-secondary, state: directory, mode: "0755"}
+- name: Mount secondary storage
+  ansible.builtin.shell: "mountpoint -q /mnt/autoinfra-secondary || mount -t nfs {{ systemvm_secondary }} /mnt/autoinfra-secondary"
+  changed_when: false
+  when: autoinfra_services | default(true) | bool
+- name: Download the template from the master repository
+  ansible.builtin.get_url: {url: "{{ systemvm_template_url }}", dest: /var/tmp/systemvmtemplate-kvm.qcow2.bz2, mode: "0644"}
+- name: Seed it (cloud-install-sys-tmplt; idempotent via marker)
+  ansible.builtin.shell: >-
+    /usr/share/cloudstack-common/scripts/storage/secondary/cloud-install-sys-tmplt
+    -m /mnt/autoinfra-secondary -f /var/tmp/systemvmtemplate-kvm.qcow2.bz2 -h kvm -F
+    && touch /mnt/autoinfra-secondary/.autoinfra-systemvm-seeded
+  args: {creates: /mnt/autoinfra-secondary/.autoinfra-systemvm-seeded}
+  when: autoinfra_services | default(true) | bool

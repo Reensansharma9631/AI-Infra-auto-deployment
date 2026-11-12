@@ -1,0 +1,12 @@
+[Unit]
+Description=Self-healing MySQL HA agent
+After={{ mysql_service }}.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/dbha/dbha_agent.py /etc/dbha/config.json
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

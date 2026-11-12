@@ -1,0 +1,33 @@
+# managed by AutoInfra - the DB VIP lives on a node whose Galera member is Synced (wsrep_local_state = 4)
+global_defs {
+    router_id {{ inventory_hostname }}
+    enable_script_security
+    script_user root
+}
+
+vrrp_script chk_pxc {
+    script "/usr/local/bin/autoinfra-pxc-synced"
+    interval 3
+    fall 2
+    rise 2
+}
+
+vrrp_instance PXC_VIP {
+    state BACKUP
+    interface {{ pxc_iface }}
+    virtual_router_id {{ db_vrrp_id }}
+    priority {{ 150 - groups['cs_db'].index(inventory_hostname) * 10 }}
+    nopreempt
+    authentication {
+        auth_type PASS
+        auth_pass {{ db_vrrp_pass }}
+    }
+    virtual_ipaddress {
+        {{ db_vip }}/{{ db_vip_prefix }}
+    }
+    track_script {
+        chk_pxc
+    }
+}
+
+include /etc/keepalived/conf.d/*.conf

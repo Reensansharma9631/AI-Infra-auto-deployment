@@ -1,0 +1,36 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["11434/tcp"]
+
+- name: ollama user
+  ansible.builtin.user: {name: ollama, system: true, home: /var/lib/ollama, shell: /usr/sbin/nologin, create_home: true}
+- name: Unpack the Ollama binary from the master repository
+  ansible.builtin.unarchive:
+    src: "{{ airgap_repo_base }}/ollama/files/{{ ollama_bundle }}"
+    dest: /usr/local
+    remote_src: true
+    creates: /usr/local/bin/ollama
+- name: Model directory
+  ansible.builtin.file: {path: /var/lib/ollama/models, state: directory, owner: ollama, group: ollama, mode: "0755"}
+- name: Import model blobs (offline - no 'ollama pull')
+  ansible.builtin.unarchive:
+    src: "{{ airgap_repo_base }}/ollama/files/{{ ollama_models_bundle }}"
+    dest: /var/lib/ollama
+    remote_src: true
+    owner: ollama
+    group: ollama
+    creates: /var/lib/ollama/models/manifests
+  failed_when: false
+- name: systemd unit
+  ansible.builtin.template: {src: ollama.service.j2, dest: /etc/systemd/system/ollama.service, mode: "0644"}
+  register: unit
+- name: Ollama running
+  ansible.builtin.systemd: {name: ollama, state: started, enabled: true, daemon_reload: "{{ unit is changed }}"}
+  when: autoinfra_services | default(true) | bool
+- name: Next step
+  ansible.builtin.debug:
+    msg: "Set AutoInfra Settings > Ollama URL to http://{{ ansible_host }}:{{ ollama_listen.split(':')[-1] }} and model {{ ollama_model }}"

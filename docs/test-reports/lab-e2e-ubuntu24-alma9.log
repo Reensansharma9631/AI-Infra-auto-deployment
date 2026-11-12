@@ -1,0 +1,43 @@
+PASS upload: Ubuntu offline bundle verified+extracted+indexed  [job 1]
+PASS upload: duplicate chunk answered 409 with the resume offset
+PASS repo: core apt repository holds nginx, mysql-server, postgresql  [127 pkgs]
+PASS upload: probe bundle (rpm + deb) indexed, dnf repodata created
+PASS repo: dependency scan over 120+ real Ubuntu packages runs  [61 groups provided by the base OS]
+PASS hosts: Ubuntu added with a password - master key installed, password not stored  [added, SSH key installed]
+PASS security: the Ubuntu root password is nowhere in the database
+PASS checks: ubuntu detected as debian family over SSH  [Ubuntu 24.04 LTS -> ready-with-warnings]
+PASS checks: ubuntu OS compatibility = supported, master repo reachable, root access  [{"Ping (TCP/SSH port)": "pass", "SSH login": "pass", "Root / sudo access": "pass", "OS compatibility": "pass", "CPU cores": "pass", "Memory": "pass", "Disk free on /": "pass", "CPU virtualization (KVM)": "warn", "Clock skew vs master": "pass", "Package manager": "pass", "Master repository reachable": "pass", "Updates available": "warn", "Required packages": "warn", "Security checks": "warn", "Python for Ansible": "pass"}]
+PASS checks: ubuntu usable for deployment  [ready-with-warnings]
+PASS checks: almalinux detected as rhel family over SSH  [AlmaLinux 9.3 (Shamrock Pampas Cat) -> ready-with-warnings]
+PASS checks: almalinux OS compatibility = supported, master repo reachable, root access  [{"Ping (TCP/SSH port)": "pass", "SSH login": "pass", "Root / sudo access": "pass", "OS compatibility": "pass", "CPU cores": "pass", "Memory": "pass", "Disk free on /": "pass", "CPU virtualization (KVM)": "warn", "Clock skew vs master": "pass", "Package manager": "pass", "Master repository reachable": "pass", "Updates available": "pass", "Required packages": "warn", "Security checks": "pass", "Python for Ansible": "pass"}]
+PASS checks: almalinux usable for deployment  [ready-with-warnings]
+PASS checks: unreachable host reported
+PASS ansible: 01-common.yml succeeded on Ubuntu 24.04 and AlmaLinux 9  [(9, 6, 0, 0)(9, 5, 0, 0)]
+PASS alma: dnf uses ONLY the master repository and installed autoinfra-probe from it  [autoinfra-probe-1.0-1.el9.noarch almalinux-appstream.repo.airgap-disabled almalinux-baseos.repo.airgap-disabled almalinux-crb.repo.airgap-disabled almalinux-extras.repo.airgap-disabled almalinux-higha]
+PASS ubuntu: apt uses ONLY the master repository; chrony, jq, rsync installed; chrony -> master  [install ok installed chrony install ok installed jq install ok installed rsync airgap.list server 10.79.0.1 iburst ]
+PASS ansible: 01-common.yml second run is idempotent on both OS (changed=0)  [(9, 0, 0, 0) (9, 0, 0, 0)]
+PASS component: MySQL 8 single deployed on Ubuntu by Ansible  [(11, 2, 0, 0)]
+PASS verify: MySQL 8 single files/packages correct on the node  [OK]
+PASS component: PostgreSQL 16 deployed on Ubuntu by Ansible  [(12, 3, 0, 0)]
+PASS verify: PostgreSQL 16 files/packages correct on the node  [OK]
+PASS component: Nginx + offline TLS deployed on Ubuntu by Ansible  [(14, 6, 0, 0)]
+PASS verify: Nginx + offline TLS files/packages correct on the node  [nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+OK]
+PASS component: NFS primary/secondary deployed on Ubuntu by Ansible  [(12, 4, 0, 0)]
+PASS verify: NFS primary/secondary files/packages correct on the node  [OK]
+PASS component: RabbitMQ deployed on Ubuntu by Ansible  [(12, 4, 0, 0)]
+PASS verify: RabbitMQ files/packages correct on the node  [OK]
+PASS kit: bundle made by the UI's KVM download kit uploads and makes 'KVM / Libvirt' ready
+PASS component: KVM / libvirt deployed on Ubuntu from the kit bundle  [(12, 5, 0, 0)OK
+]
+PASS component: HAProxy refused on a management server (port clash 8080/8250)  [{'error': 'HAProxy cannot run on a CloudStack management server (both use ports 8080 and 8250): 10.79.0.21'}]
+PASS component: HAProxy + keepalived (management VIP) deployed and both configs valid  [Configuration file is valid
+OK]
+PASS live: nginx on Ubuntu redirects :80 -> https and proxies :443 to the upstream (the master repo)  [http=301 https-body='Origin: AutoInfra\nLabel: AutoInfra\nSuite']
+PASS idempotency: second Nginx deployment changes nothing  [(14, 0, 0, 0)]
+PASS ui: component cards show Installed  [{"cloudstack-management": "not_installed", "cloudstack-usage": "not_installed", "cloudstack-agent": "not_installed", "systemvm-templates": "not_installed", "mysql": "installed", "postgresql": "installed", "oracle": "not_installed", "mongodb": "not_installed", "rabbitmq": "installed", "nginx": "installed", "haproxy": "installed", "nfs": "installed", "kvm-libvirt": "installed", "zabbix-server": "not_installed", "zabbix-agent": "not_installed", "ollama": "not_installed"}]
+PASS monitoring: metrics collected from both nodes over SSH  [{"10.79.0.22": [2.0, 10.8, 43.0], "10.79.0.21": [2.0, 10.8, 43.0]}]
+PASS reports: infrastructure Excel generated from the lab data
+
+37/37 checks passed in 242s

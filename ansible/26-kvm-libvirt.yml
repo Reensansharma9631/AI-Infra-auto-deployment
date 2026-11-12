@@ -1,0 +1,8 @@
+---
+# Plain KVM / libvirt hosts (no CloudStack agent).
+- name: KVM / libvirt
+  hosts: kvm
+  become: true
+  gather_facts: true
+  vars: {kvm_cloudstack_agent: false, kvm_libvirt_tcp: false}
+  roles: [kvm_host]

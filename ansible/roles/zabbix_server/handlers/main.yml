@@ -1,0 +1,5 @@
+---
+- name: restart zabbix
+  ansible.builtin.service: {name: "{{ item }}", state: restarted}
+  loop: [zabbix-server, nginx]
+  when: autoinfra_services | default(true) | bool

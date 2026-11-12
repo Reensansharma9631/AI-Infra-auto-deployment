@@ -1,0 +1,4 @@
+---
+- name: restart libvirtd
+  ansible.builtin.service: {name: libvirtd, state: restarted}
+  when: autoinfra_services | default(true) | bool

@@ -1,0 +1,4 @@
+---
+- name: restart postgresql
+  ansible.builtin.service: {name: "{{ pg_service }}", state: restarted}
+  when: autoinfra_services | default(true) | bool

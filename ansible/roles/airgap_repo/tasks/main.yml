@@ -1,0 +1,54 @@
+---
+# Points apt / dnf at the master's offline repositories ONLY. A dependency of every role, so a node always sees the
+# repositories that exist on the master right now (also ones uploaded after the node was first configured).
+- name: Ubuntu - offline apt repositories only
+  when: ansible_facts['os_family'] == 'Debian'
+  tags: repo
+  block:
+    - name: Disable every non-AutoInfra apt source (apt must not hang on dead mirrors)
+      ansible.builtin.shell: |
+        set -e
+        changed=0
+        for f in /etc/apt/sources.list $(find /etc/apt/sources.list.d -maxdepth 1 -type f \( -name '*.list' -o -name '*.sources' \) ! -name 'airgap.list'); do
+          [ -f "$f" ] || continue
+          mv "$f" "$f.airgap-disabled"; changed=1
+        done
+        echo "changed=$changed"
+      args: {executable: /bin/bash}
+      register: apt_disable
+      changed_when: "'changed=1' in apt_disable.stdout"
+    - name: AutoInfra apt sources
+      ansible.builtin.template: {src: airgap.list.j2, dest: /etc/apt/sources.list.d/airgap.list, mode: "0644"}
+    - name: apt update
+      ansible.builtin.apt: {update_cache: true}
+      register: apt_up
+      retries: 3
+      delay: 5
+      until: apt_up is succeeded
+
+- name: RHEL family - offline dnf repositories only
+  when: ansible_facts['os_family'] == 'RedHat'
+  tags: repo
+  block:
+    - name: Disable every non-AutoInfra .repo file
+      ansible.builtin.shell: |
+        changed=0
+        for f in /etc/yum.repos.d/*.repo; do
+          [ -f "$f" ] || continue
+          [ "$(basename "$f")" = "autoinfra.repo" ] && continue
+          mv "$f" "$f.airgap-disabled"; changed=1
+        done
+        echo "changed=$changed"
+      args: {executable: /bin/bash}
+      register: dnf_disable
+      changed_when: "'changed=1' in dnf_disable.stdout"
+    - name: AutoInfra dnf repositories
+      ansible.builtin.template: {src: airgap.repo.j2, dest: /etc/yum.repos.d/autoinfra.repo, mode: "0644"}
+    - name: dnf makecache
+      ansible.builtin.command: dnf -q -y makecache
+      register: dnf_cache
+      retries: 3
+      delay: 5
+      until: dnf_cache.rc == 0
+      changed_when: false
+

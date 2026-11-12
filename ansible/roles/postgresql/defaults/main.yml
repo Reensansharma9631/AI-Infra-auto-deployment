@@ -1,0 +1,5 @@
+---
+pg_port: 5432
+pg_listen: "*"
+pg_allowed_cidr: ""
+pg_data_path: ""

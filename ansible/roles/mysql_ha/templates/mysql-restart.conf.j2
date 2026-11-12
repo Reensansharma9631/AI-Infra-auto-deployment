@@ -1,0 +1,7 @@
+# managed by airgap-installer
+# Ubuntu's mysql.service already has Restart=on-failure and MYSQLD_PARENT_PID=1 (both needed so CLONE can
+# restart mysqld). We only shorten the restart delay and make exit code 16 (the CLONE restart code) explicit.
+[Service]
+Restart=on-failure
+RestartForceExitStatus=16
+RestartSec=3

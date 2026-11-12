@@ -1,0 +1,67 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ db_port }}/tcp", "4444/tcp", "4567/tcp", "4567/udp", "4568/tcp"]
+    fw_protocols: ["vrrp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - groups['cs_db'] | length == 3
+      - db_vip is defined
+      - db_vrrp_pass is defined
+      - db_acs_admin_password is defined
+    fail_msg: "Percona XtraDB Cluster needs exactly 3 nodes and db_vip / db_vrrp_pass / db_acs_admin_password"
+    quiet: true
+- name: Install Percona XtraDB Cluster + keepalived from the local repo
+  ansible.builtin.package: {name: "{{ pxc_pkgs }}", state: present}
+- name: NIC for the VIP
+  ansible.builtin.shell: ip -o -4 addr show | awk -v ip="{{ ansible_host }}" '$4 ~ "^"ip"/" {print $2; exit}'
+  register: nic
+  changed_when: false
+- name: Remember the NIC
+  ansible.builtin.set_fact: {pxc_iface: "{{ nic.stdout | default('eth0', true) }}"}
+- name: Galera configuration
+  ansible.builtin.template: {src: pxc.cnf.j2, dest: "{{ pxc_conf }}", mode: "0644"}
+- name: Bootstrap the first node (only when no cluster exists yet)
+  ansible.builtin.command:
+    cmd: systemctl start mysql@bootstrap.service
+    creates: /var/lib/mysql/grastate.dat
+  when: inventory_hostname == groups['cs_db'][0] and (autoinfra_services | default(true) | bool)
+  run_once: true
+- name: Join the other nodes (state transfer happens automatically - no dumps)
+  ansible.builtin.service: {name: "{{ pxc_service }}", state: started, enabled: true}
+  when: inventory_hostname != groups['cs_db'][0] and (autoinfra_services | default(true) | bool)
+  throttle: 1
+- name: CloudStack admin account (replicated by Galera)
+  ansible.builtin.command:
+    cmd: mysql -uroot
+    stdin: |
+      {% for ip in (db_client_ips + (groups['cs_db'] | map('extract', hostvars, 'ansible_host') | list) + ['localhost']) | unique %}
+      CREATE USER IF NOT EXISTS 'acsadmin'@'{{ ip }}' IDENTIFIED BY '{{ db_acs_admin_password }}';
+      GRANT ALL PRIVILEGES ON *.* TO 'acsadmin'@'{{ ip }}' WITH GRANT OPTION;
+      {% endfor %}
+  run_once: true
+  changed_when: false
+  no_log: true
+  when: autoinfra_services | default(true) | bool
+- name: Health script used by keepalived
+  ansible.builtin.copy:
+    dest: /usr/local/bin/autoinfra-pxc-synced
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      [ "$(mysql -N -uroot -e "SHOW STATUS LIKE 'wsrep_local_state'" 2>/dev/null | awk '{print $2}')" = "4" ]
+- name: keepalived conf.d (extra VRRP instances, e.g. the management VIP)
+  ansible.builtin.file: {path: /etc/keepalived/conf.d, state: directory, mode: "0755"}
+- name: keepalived VIP
+  ansible.builtin.template: {src: keepalived.conf.j2, dest: /etc/keepalived/keepalived.conf, mode: "0600"}
+  notify: restart keepalived
+- name: keepalived running
+  ansible.builtin.service: {name: keepalived, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool

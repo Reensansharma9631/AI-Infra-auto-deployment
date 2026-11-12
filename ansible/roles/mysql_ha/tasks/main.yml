@@ -1,0 +1,217 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ db_port }}/tcp", "{{ db_agent_port }}/tcp"]
+    fw_protocols: ["vrrp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Server id from the position in the group (1, 2, 3)
+  ansible.builtin.set_fact:
+    db_server_id: "{{ db_server_id | default(groups['cs_db'].index(inventory_hostname) + 1) }}"
+
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - groups['cs_db'] | length in [2, 3]
+      - db_server_id is defined
+      - db_dbha_password is defined and (db_dbha_password | length) >= 16
+      - db_acs_admin_password is defined and (db_acs_admin_password | length) >= 16
+      - db_vip is defined and (db_vip | length) > 0
+      - db_vrrp_pass is defined and (db_vrrp_pass | length) >= 4 and (db_vrrp_pass | length) <= 8
+    fail_msg: >-
+      cs_db needs 2-3 nodes and these vars (set them in the UI Settings page):
+      db_vip, db_dbha_password, db_acs_admin_password, db_vrrp_pass (4-8 chars)
+    quiet: true
+
+- name: Collect the DB node IPs
+  ansible.builtin.set_fact:
+    db_ips: "{{ groups['cs_db'] | map('extract', hostvars, 'ansible_host') | list }}"
+
+- name: Install MySQL, keepalived and helpers from the local repo
+  ansible.builtin.package:
+    name: "{{ mysql_pkgs }}"
+    state: present
+
+- name: Find the NIC that carries this node's IP
+  ansible.builtin.shell: ip -o -4 addr show | awk -v ip="{{ ansible_host }}" '$4 ~ "^"ip"/" {print $2; exit}'
+  register: nic_out
+  changed_when: false
+
+- name: Decide the VRRP interface
+  ansible.builtin.set_fact:
+    vrrp_iface: "{{ db_vrrp_iface if (db_vrrp_iface | length) > 0 else nic_out.stdout }}"
+
+- name: Interface must be known
+  ansible.builtin.assert:
+    that: vrrp_iface | length > 0
+    fail_msg: "cannot find the NIC holding {{ ansible_host }} - set 'VRRP interface' in Settings"
+    quiet: true
+
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/dbha, mode: "0700" }
+    - { path: /var/lib/dbha, mode: "0700" }
+    - { path: /usr/local/lib/dbha, mode: "0755" }
+    - { path: "/etc/systemd/system/{{ mysql_service }}.service.d", mode: "0755" }
+    - { path: /etc/keepalived/conf.d, mode: "0755" }
+
+- name: Make sure the data directory is initialised BEFORE our config goes in
+  # normally the .deb postinst does this; if it did not (service blocked, wiped datadir) mysqld cannot
+  # initialise with our config because plugin variables are unknown during --initialize
+  ansible.builtin.command:
+    cmd: "{{ mysqld_bin }} --no-defaults --initialize-insecure --user=mysql --datadir=/var/lib/mysql"
+    creates: /var/lib/mysql/mysql
+
+- name: mysqld HA configuration
+  ansible.builtin.template:
+    src: zz-airgap-ha.cnf.j2
+    dest: "{{ mysql_conf_dir }}/zz-airgap-ha.cnf"
+    mode: "0644"
+  notify: restart mysql
+
+- name: systemd drop-in so CLONE can restart mysqld
+  ansible.builtin.template:
+    src: mysql-restart.conf.j2
+    dest: "/etc/systemd/system/{{ mysql_service }}.service.d/airgap.conf"
+    mode: "0644"
+  notify: reload systemd
+
+- name: Apply config now
+  ansible.builtin.meta: flush_handlers
+
+- name: mysql enabled and running
+  ansible.builtin.service:
+    name: "{{ mysql_service }}"
+    state: started
+    enabled: true
+
+- name: Wait for mysqld
+  ansible.builtin.wait_for:
+    port: "{{ db_port }}"
+    host: "{{ ansible_host }}"
+    timeout: 120
+
+- name: Has this node been initialised already?
+  ansible.builtin.stat:
+    path: /var/lib/dbha/.initialized
+  register: init_stat
+
+- name: First-run initialisation (cluster user, clean GTID state, read-only)
+  when: not init_stat.stat.exists
+  block:
+    - name: Create the replication/agent account locally (not binlogged) and reset GTIDs
+      ansible.builtin.command:
+        cmd: mysql -uroot
+        stdin: "{{ lookup('ansible.builtin.template', 'init-node.sql.j2') }}"
+      no_log: true
+
+    - name: Mark initialised
+      ansible.builtin.file:
+        path: /var/lib/dbha/.initialized
+        state: touch
+        mode: "0600"
+
+- name: Install dbha-agent
+  ansible.builtin.copy:
+    src: dbha_agent.py
+    dest: /usr/local/lib/dbha/dbha_agent.py
+    mode: "0755"
+  notify: restart dbha-agent
+
+- name: dbha-agent config (contains the cluster password)
+  ansible.builtin.template:
+    src: dbha-config.json.j2
+    dest: /etc/dbha/config.json
+    mode: "0600"
+  no_log: true
+  notify: restart dbha-agent
+
+- name: dbha-agent unit
+  ansible.builtin.template:
+    src: dbha-agent.service.j2
+    dest: /etc/systemd/system/dbha-agent.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart dbha-agent
+
+- name: keepalived (VIP follows the writable primary)
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0600"
+  no_log: true
+  notify: restart keepalived
+
+- name: Apply unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Start agent and keepalived
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [dbha-agent, keepalived]
+
+- name: Wait until exactly one primary exists and every replica is streaming
+  ansible.builtin.shell: |
+    set -e
+    p=0; r=0
+    for ip in {{ db_ips | join(' ') }}; do
+      s=$(curl -fsS -m 3 http://$ip:{{ db_agent_port }}/status) || exit 1
+      role=$(echo "$s" | jq -r .role); ok=$(echo "$s" | jq -r .replication_ok)
+      [ "$role" = primary ] && p=$((p+1))
+      [ "$role" = replica ] && [ "$ok" = true ] && r=$((r+1))
+    done
+    [ "$p" -eq 1 ] && [ "$r" -eq {{ db_ips | length - 1 }} ]
+  args:
+    executable: /bin/bash
+  register: cluster_ok
+  until: cluster_ok.rc == 0
+  retries: 40
+  delay: 6
+  changed_when: false
+  run_once: true
+
+- name: Which node is primary?
+  ansible.builtin.shell: |
+    for ip in {{ db_ips | join(' ') }}; do
+      curl -fsS -m 3 http://$ip:{{ db_agent_port }}/primary >/dev/null && echo $ip && exit 0
+    done
+    exit 1
+  args:
+    executable: /bin/bash
+  register: primary_out
+  changed_when: false
+  run_once: true
+
+- name: Create the CloudStack admin account on the primary (replicates to all nodes)
+  ansible.builtin.command:
+    cmd: mysql -uroot
+    stdin: |
+      {% for ip in (db_client_ips + db_ips + ['localhost']) | unique %}
+      CREATE USER IF NOT EXISTS 'acsadmin'@'{{ ip }}' IDENTIFIED BY '{{ db_acs_admin_password }}';
+      GRANT ALL PRIVILEGES ON *.* TO 'acsadmin'@'{{ ip }}' WITH GRANT OPTION;
+      {% endfor %}
+      FLUSH PRIVILEGES;
+  # primary_out is an IP; the inventory knows hosts by name -> map it back (else Ansible would ssh as the wrong user)
+  delegate_to: "{{ groups['cs_db'] | map('extract', hostvars) | selectattr('ansible_host', 'equalto', primary_out.stdout | trim) | map(attribute='inventory_hostname') | first }}"
+  run_once: true
+  changed_when: false
+  no_log: true
+
+- name: Result
+  ansible.builtin.debug:
+    msg:
+      - "Primary now: {{ primary_out.stdout }}   VIP: {{ db_vip }}:{{ db_port }}"
+      - "CloudStack db.properties host should be the VIP; admin user: acsadmin"
+  run_once: true

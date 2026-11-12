@@ -1,0 +1,26 @@
+{% extends "base.html" %}{% block title %}Monitoring{% endblock %}{% block page %}monitoring{% endblock %}
+{% block content %}
+<div class="flex"><h1>Monitoring, Logs &amp; AI Insights</h1><span class="right muted" id="mon-upd"></span><button class="btn sm o" id="mon-collect" data-need="operator">{{ ic('refresh') }} Collect now</button></div>
+<p class="sub-h">Metrics are collected over SSH from every host (Settings &gt; monitoring interval). Alerts use the thresholds in Settings.</p>
+<div class="tiles" id="mon-tiles"></div>
+<div class="tabs" data-tabs="mon"><button data-t="topology">Infrastructure Topology</button><button data-t="hosts">Hosts</button><button data-t="vms">VMs</button>
+  <button data-t="storage">Storage</button><button data-t="databases">Databases</button><button data-t="logs">Logs &amp; Events</button><button data-t="alerts">Alerts</button><button data-t="zabbix">Zabbix</button></div>
+<div class="grid g64">
+  <div>
+    <div class="pane" data-pane="topology"><div class="card"><h2>Infrastructure Topology</h2><div id="topo"></div></div></div>
+    <div class="pane" data-pane="hosts"><div class="card"><h2>Hosts</h2><div id="mon-hosts"></div></div><div class="card"><h2 id="mh-t">Host history</h2><div id="mon-hist" class="muted">Click a host</div></div></div>
+    <div class="pane" data-pane="vms"><div class="card"><h2>Virtual Machines (CloudStack)</h2><div id="mon-vms"></div></div></div>
+    <div class="pane" data-pane="storage"><div class="card"><h2>Primary Storage</h2><div id="mon-sto"></div></div></div>
+    <div class="pane" data-pane="databases"><div class="card"><h2>Databases</h2><div id="mon-db"></div></div></div>
+    <div class="pane" data-pane="logs"><div class="card"><h2>Logs &amp; Events <span class="r"><input type="text" id="lg-q" placeholder="filter" style="width:200px"></span></h2><div id="mon-logs"></div></div></div>
+    <div class="pane" data-pane="alerts"><div class="card"><h2>Alerts <span class="r"><select id="al-show"><option value="open">Open</option><option value="all">All</option></select></span></h2><div id="mon-alerts"></div></div></div>
+    <div class="pane" data-pane="zabbix"><div class="card"><h2>Zabbix problems</h2><div id="mon-zbx"></div></div></div>
+  </div>
+  <div class="card"><h2>{{ ic('spark') }} Ollama AI Assistant (Local) <a class="r" href="/ai">Open</a></h2>
+    <div class="quick" id="mq"><button>Explain the health status of my infrastructure</button><button>Show recent errors</button><button>Explain high CPU usage</button></div>
+    <div class="chat" style="height:380px"><div class="msgs" id="m-msgs"></div><form id="m-chat"><input type="text" id="m-in" placeholder="Ask anything about your infrastructure..."><button class="btn">{{ ic('send') }}</button></form></div></div>
+</div>
+<div class="card"><h2>Resource usage (average of all hosts)</h2><div class="gauges" id="gauges"></div></div>
+<div class="card"><h2>Recent Alerts <a class="r" href="#alerts">View All</a></h2><div id="mon-recent"></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

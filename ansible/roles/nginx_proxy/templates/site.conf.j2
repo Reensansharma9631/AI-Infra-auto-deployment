@@ -1,0 +1,26 @@
+# managed by AutoInfra
+upstream autoinfra_backend {
+    server {{ nginx_upstream if nginx_upstream else ((cs_mgmt_vip | default(ansible_host)) ~ ':8080') }};
+}
+server {
+    listen 80;
+    server_name {{ nginx_server_name }};
+{% if nginx_ssl %}
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl;
+    server_name {{ nginx_server_name }};
+    ssl_certificate     /etc/nginx/autoinfra-tls/server.crt;
+    ssl_certificate_key /etc/nginx/autoinfra-tls/server.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+{% endif %}
+    client_max_body_size 4g;
+    location / {
+        proxy_pass http://autoinfra_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+}

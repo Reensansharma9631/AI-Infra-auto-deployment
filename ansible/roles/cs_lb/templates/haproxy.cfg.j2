@@ -1,0 +1,44 @@
+# managed by airgap-installer
+global
+    log /dev/log local0
+    maxconn 8192
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    user haproxy
+    group haproxy
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect 5s
+    timeout client  1h
+    timeout server  1h
+
+# CloudStack UI + API (http health check on the real application)
+frontend cs_ui
+    bind {{ cs_mgmt_vip }}:{{ cs_ui_port }}
+    mode http
+    option httplog
+    default_backend cs_ui_servers
+
+backend cs_ui_servers
+    mode http
+    balance roundrobin
+    option httpchk GET /client/
+    http-check expect rstatus (2|3)[0-9][0-9]
+    cookie CSLB insert indirect nocache
+{% for h in groups['cs_mgmt'] %}
+    server mgmt{{ loop.index }} {{ hostvars[h].ansible_host }}:{{ cs_ui_port }} check inter 2s fall 2 rise 2 cookie mgmt{{ loop.index }}
+{% endfor %}
+
+# KVM agents / system VMs -> management server (long-lived, sticky by client address)
+frontend cs_agent
+    bind {{ cs_mgmt_vip }}:{{ cs_agent_port }}
+    default_backend cs_agent_servers
+
+backend cs_agent_servers
+    balance source
+    option tcp-check
+{% for h in groups['cs_mgmt'] %}
+    server mgmt{{ loop.index }} {{ hostvars[h].ansible_host }}:{{ cs_agent_port }} check inter 2s fall 2 rise 2
+{% endfor %}

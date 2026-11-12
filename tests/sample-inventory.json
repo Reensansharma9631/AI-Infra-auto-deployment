@@ -1,0 +1,5 @@
+{"all":{"vars":{"ansible_user":"root","master_ip":"10.0.0.5"},
+ "children":{"cs_db":{"hosts":{
+  "10.0.0.11":{"ansible_host":"10.0.0.11","node_hostname":"db1","db_server_id":1},
+  "10.0.0.12":{"ansible_host":"10.0.0.12","node_hostname":"db2","db_server_id":2},
+  "10.0.0.13":{"ansible_host":"10.0.0.13","node_hostname":"db3","db_server_id":3}}}}}}

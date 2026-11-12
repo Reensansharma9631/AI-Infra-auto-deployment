@@ -1,0 +1,39 @@
+---
+# Shared helper: open the ports a role needs, but only when a host firewall is really active
+# (firewalld is on by default on RHEL/Rocky/Alma; ufw is off by default on Ubuntu). Nothing is installed or enabled.
+#   vars: fw_ports: ["3306/tcp", "5900-6100/tcp"]   fw_protocols: ["vrrp"] (optional)
+- name: Which host firewall is active
+  ansible.builtin.shell: |
+    if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then echo firewalld
+    elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then echo ufw
+    else echo none; fi
+  register: fw_kind
+  changed_when: false
+  tags: firewall
+
+- name: Open ports in firewalld
+  ansible.builtin.shell: |
+    set -e
+    {% for p in fw_ports | default([]) %}
+    firewall-cmd -q --permanent --add-port={{ p }}
+    {% endfor %}
+    {% for p in fw_protocols | default([]) %}
+    firewall-cmd -q --permanent --add-protocol={{ p }}
+    {% endfor %}
+    firewall-cmd -q --reload
+  when: fw_kind.stdout | trim == 'firewalld'
+  changed_when: false
+  tags: firewall
+
+- name: Open ports in ufw
+  ansible.builtin.shell: |
+    set -e
+    {% for p in fw_ports | default([]) %}
+    ufw allow {{ p | replace('-', ':') }}
+    {% endfor %}
+    {% for p in fw_protocols | default([]) %}
+    ufw allow proto {{ p }} from any to any
+    {% endfor %}
+  when: fw_kind.stdout | trim == 'ufw'
+  changed_when: false
+  tags: firewall

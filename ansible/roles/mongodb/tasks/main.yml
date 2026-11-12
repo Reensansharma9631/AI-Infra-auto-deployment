@@ -1,0 +1,27 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ mongo_port }}/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Install MongoDB from the local repo (upload the mongodb-org packages to the 'databases' repo)
+  ansible.builtin.package: {name: "{{ mongo_pkgs }}", state: present}
+- name: mongod.conf
+  ansible.builtin.template: {src: mongod.conf.j2, dest: /etc/mongod.conf, mode: "0644"}
+  notify: restart mongod
+- name: Apply
+  ansible.builtin.meta: flush_handlers
+- name: mongod running
+  ansible.builtin.service: {name: mongod, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+- name: Initiate the replica set (3 nodes)
+  ansible.builtin.shell: |
+    mongosh --quiet --port {{ mongo_port }} --eval 'try { rs.status().ok } catch (e) { rs.initiate({_id: "{{ mongo_replset }}", members: [
+    {% for h in groups['mongodb'] %}{_id: {{ loop.index0 }}, host: "{{ hostvars[h].ansible_host }}:{{ mongo_port }}"}{{ "," if not loop.last }}{% endfor %}]}).ok }'
+  run_once: true
+  changed_when: false
+  when: (autoinfra_services | default(true) | bool) and groups['mongodb'] | length > 1

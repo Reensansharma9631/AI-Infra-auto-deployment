@@ -1,0 +1,19 @@
+<div class="modal" id="m-add"><div class="box"><header>Add Host<button data-close>&times;</button></header>
+  <form class="bd" id="f-add" autocomplete="off"><div class="errs"></div>
+    <div class="row"><div class="f"><label>IP address *</label><input type="text" name="ip" placeholder="10.0.0.21"></div>
+      <div class="f"><label>Hostname</label><input type="text" name="hostname" placeholder="cs-compute-01"></div></div>
+    <div class="row"><div class="f"><label>SSH user</label><input type="text" name="ssh_user" value="root"></div>
+      <div class="f"><label>SSH port</label><input type="number" name="ssh_port" value="22" data-num></div>
+      <div class="f"><label>Group</label><input type="text" name="grp" value="default"></div></div>
+    <div class="f"><label>Password (used once to install the master's SSH key - never stored)</label><input type="password" name="password" autocomplete="new-password"></div>
+    <div class="f"><label>Roles</label><div class="row">{% for k, v in roles.items() %}<label class="chk"><input type="checkbox" class="role-cb" value="{{ k }}"> {{ v }}</label>{% endfor %}</div></div>
+  </form>
+  <footer><button class="btn g" data-close>Cancel</button><button class="btn" id="b-add">{{ ic('plus') }} Add Host</button></footer></div></div>
+
+<div class="modal" id="m-csv"><div class="box"><header>Bulk Import (CSV)<button data-close>&times;</button></header>
+  <div class="bd"><p class="hint">Header row required. Columns: <span class="mono">ip,hostname,ssh_user,ssh_port,roles,group,password</span> - roles separated by <span class="mono">;</span>. The password column is optional and is never stored.</p>
+    <textarea id="csv-text" rows="8" placeholder="ip,hostname,ssh_user,ssh_port,roles,group,password&#10;10.0.0.10,cs-mgmt-01,root,22,management;database,cloudstack,"></textarea>
+    <div class="flex mt"><input type="file" id="csv-file" accept=".csv,text/csv"></div><div id="csv-out" class="mt"></div></div>
+  <footer><button class="btn g" data-close>Close</button><button class="btn" id="b-csv">Import</button></footer></div></div>
+
+<div class="modal" id="m-detail"><div class="box wide"><header id="d-title">Host details<button data-close>&times;</button></header><div class="bd" id="d-body"></div></div></div>

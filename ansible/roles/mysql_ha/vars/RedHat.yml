@@ -1,0 +1,6 @@
+---
+mysql_pkgs: [mysql-server, mysql, keepalived, python3-PyMySQL, python3-cryptography, curl, jq, iproute]
+mysql_service: mysqld
+mysql_conf_dir: /etc/my.cnf.d
+mysql_socket: /var/lib/mysql/mysql.sock
+mysqld_bin: /usr/libexec/mysqld

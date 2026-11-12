@@ -1,0 +1,4 @@
+---
+- name: restart mongod
+  ansible.builtin.service: {name: mongod, state: restarted}
+  when: autoinfra_services | default(true) | bool

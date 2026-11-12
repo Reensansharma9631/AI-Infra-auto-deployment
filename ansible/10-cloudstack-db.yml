@@ -1,0 +1,9 @@
+---
+# Self-healing MySQL 8 HA set (2-3 nodes, GTID + semi-sync + CLONE auto-heal agent) with a floating VIP.
+- name: CloudStack database HA set
+  hosts: cs_db
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles:
+    - mysql_ha

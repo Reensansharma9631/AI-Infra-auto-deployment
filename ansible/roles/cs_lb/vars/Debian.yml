@@ -1,0 +1,2 @@
+---
+lb_pkgs: [haproxy, keepalived, procps, curl, iproute2]

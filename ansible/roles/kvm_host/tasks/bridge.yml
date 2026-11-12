@@ -1,0 +1,69 @@
+---
+# Moves the host's own IP (the address AutoInfra reaches it on) from its NIC to the bridge {{ kvm_bridge_name }}.
+# NIC, prefix, gateway, DNS and MAC are detected on the host. The switch runs detached on the host and undoes itself
+# unless this playbook reaches the host again and confirms - so a wrong guess cannot lock the host out.
+- name: Install the bridge helper
+  ansible.builtin.copy: {src: autoinfra-bridge.py, dest: /usr/local/sbin/autoinfra-bridge, mode: "0755"}
+
+- name: Detect the current network (changes nothing)
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/autoinfra-bridge, plan, --ip, "{{ ansible_host }}", --bridge, "{{ kvm_bridge_name }}", "--extra={{ kvm_extra_bridges | to_json }}"]
+  register: br_plan_out
+  changed_when: false
+
+- name: Parse
+  ansible.builtin.set_fact:
+    br_plan: "{{ br_plan_out.stdout | from_json }}"
+
+- name: What was found
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: {{ br_plan.ip }}/{{ br_plan.prefix | default('?') }} on {{ br_plan.dev | default('?') }}
+      ({{ br_plan.kind | default('?') }}), gateway {{ br_plan.gateway | default('none', true) }}, DNS {{ br_plan.dns | default([]) | join(',') }},
+      managed by {{ br_plan.backend }} -> bridge {{ kvm_bridge_name }}: {{ br_plan.status }}
+
+- name: Stop when the bridge cannot be created automatically
+  ansible.builtin.fail:
+    msg: "{{ inventory_hostname }}: {{ br_plan.problems | join('; ') }}"
+  when: br_plan.status == 'error'
+
+- name: Create the bridge
+  when: br_plan.status == 'needed'
+  block:
+    - name: Back up the network config and write the bridge config (validated, not active yet)
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/autoinfra-bridge, write, --ip, "{{ ansible_host }}", --bridge, "{{ kvm_bridge_name }}", "--extra={{ kvm_extra_bridges | to_json }}"]
+
+    - name: Switch to the bridge (detached; rolls back by itself after {{ kvm_bridge_rollback_seconds }}s without confirmation)
+      ansible.builtin.shell: |
+        systemd-run --unit=autoinfra-bridge-$(date +%s) --collect /usr/local/sbin/autoinfra-bridge apply --timeout {{ kvm_bridge_rollback_seconds }} \
+          || (setsid nohup /usr/local/sbin/autoinfra-bridge apply --timeout {{ kvm_bridge_rollback_seconds }} >/dev/null 2>&1 &)
+      when: kvm_network_apply | bool
+
+    - name: Drop the old SSH connection
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait until the host answers again
+      ansible.builtin.wait_for_connection: {delay: 8, sleep: 3, timeout: "{{ kvm_bridge_rollback_seconds | int - 20 }}"}
+      when: kvm_network_apply | bool
+
+    - name: Confirm (keeps the new config) - fails if the IP is not on the bridge
+      ansible.builtin.command:
+        argv: [/usr/local/sbin/autoinfra-bridge, confirm, --ip, "{{ ansible_host }}", --bridge, "{{ kvm_bridge_name }}", "--extra={{ kvm_extra_bridges | to_json }}"]
+      when: kvm_network_apply | bool
+
+- name: Every traffic-label bridge must exist on the host
+  ansible.builtin.command: "ip link show {{ item }}"
+  loop: "{{ ([kvm_bridge_name] + kvm_required_bridges) | unique }}"
+  changed_when: false
+  when: kvm_network_apply | bool
+  register: br_chk
+  failed_when: false
+
+- name: Explain a missing bridge
+  ansible.builtin.fail:
+    msg: >-
+      {{ inventory_hostname }}: bridge(s) {{ br_chk.results | selectattr('rc', 'ne', 0) | map(attribute='item') | join(', ') }} do not exist.
+      Single NIC: use {{ kvm_bridge_name }} for the Guest and Public labels too. Second NIC: set the host variable
+      kvm_extra_bridges, e.g. {"cloudbr1": "eno2"} (Host Management > Edit > Ansible variables).
+  when: kvm_network_apply | bool and (br_chk.results | selectattr('rc', 'ne', 0) | list | length > 0)

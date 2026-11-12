@@ -1,0 +1,31 @@
+---
+# KVM hosts for CloudStack (Ubuntu or RHEL family). The management server's SSH key is installed so that
+# CloudStack can add the hosts without a root password.
+- name: Management server public key (exists after the first start of cloudstack-management)
+  hosts: cs_mgmt[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Read the management server's public key (home of user 'cloud'; path differs between versions)
+      ansible.builtin.shell: |
+        for f in "$(getent passwd cloud | cut -d: -f6)/.ssh/id_rsa.pub" /var/cloudstack/management/.ssh/id_rsa.pub /var/lib/cloudstack/management/.ssh/id_rsa.pub; do
+          [ -s "$f" ] && { cat "$f"; exit 0; }
+        done
+        exit 0
+      register: mgmt_key
+      changed_when: false
+    - name: Remember it
+      ansible.builtin.set_fact:
+        cs_mgmt_pubkey: "{{ mgmt_key.stdout | default('') | trim }}"
+    - name: Warn when there is no key yet
+      ansible.builtin.debug:
+        msg: "No management SSH key found - CloudStack will need the KVM root password to add hosts (wizard: KVM host authentication = Root password)."
+      when: cs_mgmt_pubkey | length == 0
+
+- name: CloudStack KVM hosts
+  hosts: cs_kvm
+  become: true
+  gather_facts: true
+  vars:
+    kvm_mgmt_pubkey: "{{ hostvars[groups['cs_mgmt'][0]].cs_mgmt_pubkey | default('') if (groups['cs_mgmt'] | default([])) else '' }}"
+  roles: [kvm_host]

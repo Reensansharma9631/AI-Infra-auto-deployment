@@ -1,0 +1,7 @@
+---
+# Nginx TLS reverse proxy (offline self-signed certificate), e.g. in front of the CloudStack UI.
+- name: Nginx (SSL)
+  hosts: "{{ nginx_hosts | default('nginx') }}"
+  become: true
+  gather_facts: true
+  roles: [nginx_proxy]

@@ -1,0 +1,7 @@
+---
+# NFS server for CloudStack primary/secondary storage (role cs_nfs). Not needed when using StorPool/Ceph/local storage.
+- name: NFS storage
+  hosts: cs_nfs
+  become: true
+  gather_facts: true
+  roles: [nfs_server]

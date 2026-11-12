@@ -1,0 +1,124 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ cs_ui_port }}/tcp", "8250/tcp", "8443/tcp", "9090/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - groups['cs_mgmt'] | length in [1, 2, 3]
+      - db_vip is defined and (db_vip | length) > 0
+      - db_acs_admin_password is defined and (db_acs_admin_password | length) >= 16
+      - cs_cloud_db_password is defined and (cs_cloud_db_password | length) >= 16
+    fail_msg: "cs_mgmt needs 1-3 nodes and db_vip, db_acs_admin_password, cs_cloud_db_password (deploy 10-cloudstack-db.yml first)"
+    quiet: true
+
+- name: Install the management server from the local repo
+  ansible.builtin.package:
+    name: "{{ cs_mgmt_pkgs }}"
+    state: present
+
+- name: Is the 'cloud' database already deployed? (asked through the DB VIP)
+  ansible.builtin.shell: >-
+    mysql -h {{ db_vip }} -uacsadmin -N -e
+    "SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='cloud'"
+  environment:
+    MYSQL_PWD: "{{ db_acs_admin_password }}"
+  register: cloud_db
+  changed_when: false
+  no_log: true
+  run_once: true
+
+- name: Master-side directory for the shared credentials
+  ansible.builtin.file: {path: "{{ cs_key_dir }}", state: directory, mode: "0700"}
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: FIRST server - create the database schema and the config/key files
+  when: inventory_hostname == groups['cs_mgmt'][0]
+  block:
+    - name: cloudstack-setup-databases (deploys the schema through the VIP)
+      ansible.builtin.command:
+        cmd: >-
+          cloudstack-setup-databases cloud:{{ cs_cloud_db_password }}@{{ db_vip }}
+          --deploy-as=acsadmin:{{ db_acs_admin_password }} -i {{ ansible_host }}
+        creates: "{{ cs_mgmt_conf_dir }}/.airgap-db-deployed"
+      when: cloud_db.stdout | trim == '0'
+      no_log: true
+      register: setup_db
+
+    - name: Remember that the schema is deployed
+      ansible.builtin.file: {path: "{{ cs_mgmt_conf_dir }}/.airgap-db-deployed", state: touch, mode: "0600"}
+      when: setup_db is changed
+
+    - name: Copy db.properties and key to the master (needed by the other servers)
+      ansible.builtin.fetch:
+        src: "{{ cs_mgmt_conf_dir }}/{{ item }}"
+        dest: "{{ cs_key_dir }}/{{ item }}"
+        flat: true
+      loop: [db.properties, key]
+      no_log: true
+
+    - name: Lock the copies down
+      ansible.builtin.file: {path: "{{ cs_key_dir }}/{{ item }}", mode: "0600"}
+      loop: [db.properties, key]
+      delegate_to: localhost
+      become: false
+
+- name: OTHER servers - same db.properties and key, own cluster node IP
+  when: inventory_hostname != groups['cs_mgmt'][0]
+  block:
+    - name: Wait until the first server has deployed the schema
+      ansible.builtin.stat: {path: "{{ cs_key_dir }}/key"}
+      delegate_to: localhost
+      become: false
+      register: key_present
+      failed_when: not key_present.stat.exists
+
+    - name: Config directory exists (normally created by the package)
+      ansible.builtin.file: {path: "{{ cs_mgmt_conf_dir }}", state: directory, mode: "0755"}
+
+    - name: Install db.properties and key
+      ansible.builtin.copy:
+        src: "{{ cs_key_dir }}/{{ item.name }}"
+        dest: "{{ cs_mgmt_conf_dir }}/{{ item.name }}"
+        owner: root
+        group: cloud
+        mode: "{{ item.mode }}"
+      loop:
+        - {name: db.properties, mode: "0640"}
+        - {name: key, mode: "0640"}
+      no_log: true
+
+    - name: This server's own cluster IP
+      ansible.builtin.lineinfile:
+        path: "{{ cs_mgmt_conf_dir }}/db.properties"
+        regexp: '^cluster\.node\.IP='
+        line: "cluster.node.IP={{ ansible_host }}"
+      no_log: true
+
+- name: cloudstack-setup-management
+  ansible.builtin.command:
+    cmd: cloudstack-setup-management
+    creates: "{{ cs_mgmt_conf_dir }}/.airgap-mgmt-setup"
+  register: setup_mgmt
+
+- name: Remember that setup-management ran
+  ansible.builtin.file: {path: "{{ cs_mgmt_conf_dir }}/.airgap-mgmt-setup", state: touch, mode: "0600"}
+  when: setup_mgmt is changed
+
+- name: Management service enabled and running
+  ansible.builtin.service: {name: cloudstack-management, state: started, enabled: true}
+
+- name: Wait for the UI/API port (first start builds caches - can take minutes)
+  ansible.builtin.wait_for:
+    port: "{{ cs_ui_port }}"
+    host: "{{ ansible_host }}"
+    timeout: 900

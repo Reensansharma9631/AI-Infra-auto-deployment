@@ -1,0 +1,4 @@
+---
+- name: restart zabbix-agent2
+  ansible.builtin.service: {name: zabbix-agent2, state: restarted}
+  when: autoinfra_services | default(true) | bool

@@ -1,0 +1,45 @@
+---
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+  tags: always
+
+- name: Supported OS
+  ansible.builtin.assert:
+    that: >-
+      (ansible_facts['distribution'] == 'Ubuntu' and ansible_facts['distribution_version'] in ['24.04', '22.04']) or
+      (ansible_facts['os_family'] == 'RedHat' and ansible_facts['distribution_major_version'] in ['8', '9'])
+    fail_msg: "unsupported OS {{ ansible_facts['distribution'] }} {{ ansible_facts['distribution_version'] }}"
+    quiet: true
+  tags: always
+
+- name: Set hostname
+  ansible.builtin.hostname: {name: "{{ node_hostname }}"}
+  when: manage_hostname | bool and node_hostname is defined
+  tags: hostname
+
+- name: Cluster-wide /etc/hosts block
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    marker: "# {mark} AUTOINFRA MANAGED"
+    unsafe_writes: true
+    block: |
+      {% for h in groups['all'] %}
+      {{ hostvars[h].ansible_host }} {{ hostvars[h].node_hostname | default(h) }}
+      {% endfor %}
+  tags: hosts
+
+- name: Base packages
+  ansible.builtin.package:
+    name: "{{ (common_os_pkgs | default(os_pkgs)) + common_packages }}"   # common_os_pkgs: replace the base list per host
+    state: present
+  tags: packages
+
+- name: chrony -> master
+  ansible.builtin.template: {src: chrony.conf.j2, dest: "{{ chrony_conf }}", mode: "0644"}
+  notify: restart chrony
+  tags: ntp
+
+- name: chrony running
+  ansible.builtin.service: {name: "{{ chrony_service }}", state: started, enabled: true}
+  when: autoinfra_services | bool
+  tags: ntp

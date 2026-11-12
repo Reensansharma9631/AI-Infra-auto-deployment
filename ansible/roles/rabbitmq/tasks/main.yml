@@ -1,0 +1,57 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["5672/tcp", "15672/tcp", "4369/tcp", "25672/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - groups['mq'] | length in [1, 3]
+      - rabbitmq_password is defined
+      - rabbitmq_cookie is defined
+    fail_msg: "RabbitMQ needs 1 or 3 nodes and rabbitmq_password / rabbitmq_cookie"
+    quiet: true
+- name: Install RabbitMQ (and Erlang) from the local repo
+  ansible.builtin.package: {name: "{{ rabbitmq_pkgs }}", state: present}
+- name: Same Erlang cookie on every node (required for clustering)
+  ansible.builtin.copy: {dest: /var/lib/rabbitmq/.erlang.cookie, content: "{{ rabbitmq_cookie }}", owner: rabbitmq, group: rabbitmq, mode: "0400"}
+  no_log: true
+  notify: restart rabbitmq
+- name: Node configuration
+  ansible.builtin.copy:
+    dest: /etc/rabbitmq/rabbitmq.conf
+    mode: "0644"
+    content: |
+      # managed by AutoInfra
+      listeners.tcp.default = 5672
+      cluster_formation.peer_discovery_backend = classic_config
+      {% for h in groups['mq'] %}
+      cluster_formation.classic_config.nodes.{{ loop.index }} = rabbit@{{ hostvars[h].node_hostname | default(h) }}
+      {% endfor %}
+      {% if rabbitmq_management %}management.tcp.port = 15672{% endif %}
+  notify: restart rabbitmq
+- name: Management plugin
+  ansible.builtin.copy:
+    dest: /etc/rabbitmq/enabled_plugins
+    content: "[{{ 'rabbitmq_management' if rabbitmq_management else '' }}].\n"
+    mode: "0644"
+  notify: restart rabbitmq
+- name: Apply
+  ansible.builtin.meta: flush_handlers
+- name: RabbitMQ running
+  ansible.builtin.service: {name: rabbitmq-server, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+- name: Admin user
+  ansible.builtin.shell: |
+    rabbitmqctl list_users | grep -q '^{{ rabbitmq_user }}\b' || rabbitmqctl add_user '{{ rabbitmq_user }}' '{{ rabbitmq_password }}'
+    rabbitmqctl set_user_tags '{{ rabbitmq_user }}' administrator
+    rabbitmqctl set_permissions -p / '{{ rabbitmq_user }}' '.*' '.*' '.*'
+  run_once: true
+  changed_when: false
+  no_log: true
+  when: autoinfra_services | default(true) | bool

@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Audit Logs{% endblock %}{% block page %}audit{% endblock %}
+{% block content %}
+<h1>Audit Logs</h1><p class="sub-h">Who did what, from where. Passwords are never written to the log.</p>
+<div class="card"><div class="flex" style="margin-bottom:10px"><input type="text" id="au-q" placeholder="Search action, user, target" style="max-width:320px">
+  <a class="btn o right" id="au-csv" href="/api/audit?format=csv">{{ ic('dl') }} Export CSV</a></div><div id="au-list"></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

@@ -1,0 +1,13 @@
+SET GLOBAL super_read_only=OFF;
+SET GLOBAL read_only=OFF;
+SET SESSION sql_log_bin=0;
+{% for ip in (db_ips + ['localhost', '127.0.0.1']) | unique %}
+CREATE USER IF NOT EXISTS 'dbha'@'{{ ip }}' IDENTIFIED BY '{{ db_dbha_password }}';
+ALTER USER 'dbha'@'{{ ip }}' IDENTIFIED BY '{{ db_dbha_password }}';
+GRANT ALL PRIVILEGES ON *.* TO 'dbha'@'{{ ip }}' WITH GRANT OPTION;
+{% endfor %}
+FLUSH PRIVILEGES;
+SET SESSION sql_log_bin=1;
+RESET MASTER;
+SET GLOBAL read_only=ON;
+SET GLOBAL super_read_only=ON;

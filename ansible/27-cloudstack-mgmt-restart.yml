@@ -1,0 +1,12 @@
+---
+# Restart the management servers one by one (needed after changing global settings such as 'host').
+- name: Restart CloudStack management servers
+  hosts: cs_mgmt
+  become: true
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Restart
+      ansible.builtin.service: {name: cloudstack-management, state: restarted}
+    - name: Wait for the UI/API port
+      ansible.builtin.wait_for: {port: "{{ cs_ui_port | default(8080) }}", host: "{{ ansible_host }}", timeout: 900}

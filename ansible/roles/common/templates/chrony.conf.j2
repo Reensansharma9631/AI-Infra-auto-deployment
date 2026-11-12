@@ -1,0 +1,6 @@
+# managed by airgap-installer
+server {{ ntp_server if ntp_server else (master_ip | default("127.0.0.1")) }} iburst
+driftfile /var/lib/chrony/chrony.drift
+makestep 1.0 3
+rtcsync
+logdir /var/log/chrony

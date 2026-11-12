@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in - AutoInfra</title><link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}"></head>
+<body>{% include "_icons.html" %}
+<div class="login"><form class="card" method="post" autocomplete="off">
+  <div class="brand"><svg><use href="#i-logo"/></svg><div><b>AutoInfra</b><small class="muted">Cloud Infrastructure Automation</small></div></div>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if error %}<div class="note" role="alert" style="margin-bottom:12px">{{ error }}</div>{% endif %}
+  <div class="f"><label for="u">User name</label><input id="u" name="username" type="text" required autofocus></div>
+  <div class="f"><label for="p">Password</label><input id="p" name="password" type="password" required></div>
+  <button class="btn lg" type="submit" style="width:100%;justify-content:center">Sign in</button>
+  <p class="hint mt">Air-gapped master · nothing leaves this network</p>
+</form></div></body></html>

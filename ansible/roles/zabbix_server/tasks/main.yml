@@ -1,0 +1,52 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["10051/tcp", "{{ zabbix_web_port }}/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Validate inputs
+  ansible.builtin.assert: {that: [zabbix_db_password is defined], quiet: true}
+- name: Install Zabbix server, frontend and MySQL from the local repo
+  ansible.builtin.package: {name: "{{ zabbix_server_pkgs }}", state: present}
+- name: MySQL running
+  ansible.builtin.service: {name: "{{ mysql_service }}", state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+- name: Database and user
+  ansible.builtin.command:
+    cmd: mysql -uroot
+    stdin: |
+      CREATE DATABASE IF NOT EXISTS zabbix CHARACTER SET utf8mb4 COLLATE utf8mb4_bin;
+      CREATE USER IF NOT EXISTS 'zabbix'@'localhost' IDENTIFIED BY '{{ zabbix_db_password }}';
+      GRANT ALL PRIVILEGES ON zabbix.* TO 'zabbix'@'localhost';
+      SET GLOBAL log_bin_trust_function_creators = 1;
+  changed_when: false
+  no_log: true
+  when: autoinfra_services | default(true) | bool
+- name: Import the schema once
+  ansible.builtin.shell: |
+    set -o pipefail
+    zcat /usr/share/zabbix/sql-scripts/mysql/server.sql.gz | mysql --default-character-set=utf8mb4 -uzabbix -p"$ZPW" zabbix
+    touch /etc/zabbix/.autoinfra-schema
+  args: {executable: /bin/bash, creates: /etc/zabbix/.autoinfra-schema}
+  environment: {ZPW: "{{ zabbix_db_password }}"}
+  no_log: true
+  when: autoinfra_services | default(true) | bool
+- name: Server DB password
+  ansible.builtin.lineinfile: {path: /etc/zabbix/zabbix_server.conf, regexp: "^#?\\s*DBPassword=", line: "DBPassword={{ zabbix_db_password }}", mode: "0640"}
+  no_log: true
+  notify: restart zabbix
+- name: Frontend port
+  ansible.builtin.replace: {path: "{{ zabbix_nginx_conf }}", regexp: "^#?\\s*listen\\s+[0-9]+;", replace: "        listen {{ zabbix_web_port }};"}
+  notify: restart zabbix
+  failed_when: false
+- name: Services running
+  ansible.builtin.service: {name: "{{ item }}", state: started, enabled: true}
+  loop: [zabbix-server, zabbix-agent2, nginx, "{{ zabbix_php_fpm }}"]
+  when: autoinfra_services | default(true) | bool
+- name: Next step
+  ansible.builtin.debug:
+    msg: "Zabbix frontend: http://{{ ansible_host }}:{{ zabbix_web_port }}/ (Admin / zabbix - change it). Create an API token and put it in AutoInfra Settings > Zabbix."

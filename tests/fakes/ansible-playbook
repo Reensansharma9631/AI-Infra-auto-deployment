@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""Stand-in for ansible-playbook in UI tests: checks the arguments the UI builds and records the call.
+Real Ansible runs are covered by tests/integration (lab nodes)."""
+import json, os, sys
+a = sys.argv[1:]
+inv = a[a.index("-i") + 1]
+ev = a[a.index("-e") + 1]
+pb = [x for x in a if x.endswith(".yml")][-1]
+assert os.path.isfile(inv), f"inventory missing: {inv}"
+assert ev.startswith("@") and os.path.isfile(ev[1:]), f"vars file missing: {ev}"
+v = json.load(open(ev[1:]))
+assert os.path.isfile(pb), f"playbook missing: {pb}"
+assert oct(os.stat(ev[1:]).st_mode & 0o777) == "0o600", "vars file must be 0600"
+rec = {"playbook": os.path.basename(pb), "inventory": open(inv).read(), "vars": v, "args": a,
+       "key": os.environ.get("ANSIBLE_PRIVATE_KEY_FILE"), "cfg": os.environ.get("ANSIBLE_CONFIG")}
+log = os.environ.get("FAKE_ANSIBLE_LOG")
+if log:
+    with open(log, "a") as fh:
+        fh.write(json.dumps(rec) + "\n")
+print(f"PLAY [{os.path.basename(pb)}] ****")
+print("TASK [Gathering Facts] ****\nok: [fake]")
+rc = int(os.environ.get("FAKE_RC_" + os.path.basename(pb).replace("-", "_").replace(".", "_"), "0"))
+print(f"PLAY RECAP ****\nfake : ok=1 changed=0 unreachable=0 failed={1 if rc else 0}")
+sys.exit(rc)

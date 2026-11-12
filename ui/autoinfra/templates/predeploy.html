@@ -1,0 +1,48 @@
+{% extends "base.html" %}{% block title %}Pre-Deployment Checks{% endblock %}{% block page %}predeploy{% endblock %}
+{% block content %}
+<h1>Pre-Deployment Checks &amp; Host Preparation</h1><p class="sub-h">Add hosts, test SSH and root access, check OS / CPU / memory / disk / KVM, update packages, validate required packages.</p>
+<div class="card">
+  <div class="steps" id="pd-steps">
+    <div class="st" data-s="add"><b>1</b>Add Hosts</div><div class="st" data-s="test"><b>2</b>Connectivity Test</div><div class="st" data-s="checks"><b>3</b>System Checks</div>
+    <div class="st" data-s="update"><b>4</b>Update &amp; Upgrade</div><div class="st" data-s="required"><b>5</b>Package Validation</div><div class="st" data-s="ready"><b>6</b>Ready</div></div>
+  <div class="tiles" id="pd-tiles"></div>
+  <div class="flex" style="margin-bottom:12px">
+    <button class="btn" data-open="m-add" data-need="operator">{{ ic('plus') }} Add Host</button>
+    <button class="btn g" data-open="m-csv" data-need="operator">{{ ic('upload') }} Bulk Import (CSV)</button>
+    <select id="pd-group" style="max-width:200px" aria-label="host group"><option value="">All groups</option></select>
+    <button class="btn o right" id="b-runall" data-need="operator">{{ ic('play') }} Run All Checks</button>
+  </div>
+  <div id="pd-table"></div>
+</div>
+<div class="card" data-tabs-scope>
+  <div class="utabs" data-tabs="pd">
+    <button data-t="test">Connectivity Test</button><button data-t="checks">System Information</button><button data-t="update">Update &amp; Upgrade</button>
+    <button data-t="required">Required Packages</button><button data-t="logs">Logs</button></div>
+  <div class="pane" data-pane="test">
+    <h2>Test Configuration</h2>
+    <form id="f-test" autocomplete="off"><div class="errs"></div>
+      <div class="row"><div class="f"><label>Username</label><input type="text" name="username" value="root"></div>
+        <div class="f"><label>Password (only for hosts without the master key; not stored)</label><input type="password" name="password" autocomplete="new-password"></div>
+        <div class="f"><label>SSH Port</label><input type="number" name="port" value="22" data-num disabled title="per host in the table"></div></div>
+      <div class="row"><div class="f"><label>Retry Attempts</label><input type="number" name="retries" value="3" min="1" max="10" data-num></div>
+        <div class="f"><label>Connection Timeout (sec)</label><input type="number" name="timeout" value="10" min="1" max="120" data-num></div>
+        <div class="f"><label>Parallel hosts</label><input type="number" name="parallel" value="8" min="1" max="16" data-num></div></div>
+      <div class="row"><label class="chk"><input type="checkbox" name="ping" checked> Ping Test</label><label class="chk"><input type="checkbox" checked disabled> SSH Login Test</label>
+        <label class="chk"><input type="checkbox" checked disabled> Root/Sudo Access</label><label class="chk"><input type="checkbox" name="check_os" checked> Check OS Compatibility</label>
+        <label class="chk"><input type="checkbox" checked disabled> Check Disk &amp; Memory</label><label class="chk"><input type="checkbox" name="check_kvm" checked> Check CPU Virtualization (KVM)</label></div>
+      <div class="flex"><button type="button" class="btn" id="b-test" data-need="operator">{{ ic('play') }} Run Connectivity Test (selected hosts)</button><span class="hint">No selection = all hosts</span></div>
+    </form>
+  </div>
+  <div class="pane" data-pane="checks"><div id="pd-sysinfo"><div class="empty">Run the checks, then click a host's <b>Details</b>.</div></div></div>
+  <div class="pane" data-pane="update">
+    <p class="hint">Runs <span class="mono">apt-get update / upgrade</span> on Ubuntu or <span class="mono">dnf makecache / upgrade</span> on RHEL-family hosts against the master's offline repositories.</p>
+    <div class="flex"><button class="btn o" id="b-refresh" data-need="operator">{{ ic('refresh') }} Refresh package lists (selected)</button>
+      <button class="btn" id="b-upgrade" data-need="operator">Run Update / Upgrade (selected)</button></div>
+    <div id="pd-upd" class="mt"></div></div>
+  <div class="pane" data-pane="required"><div id="pd-req"></div></div>
+  <div class="pane" data-pane="logs"><div class="flex" style="margin-bottom:8px"><span class="muted" id="log-title">Connectivity Log</span><a class="right" id="log-dl" href="#" hidden>Download log</a></div>
+    <div class="term" id="pd-log">No run yet.</div></div>
+</div>
+{% include "_host_modals.html" %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='hosts.js') }}?v={{ version }}"></script>{% endblock %}

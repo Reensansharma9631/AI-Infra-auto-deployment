@@ -1,0 +1,16 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+- name: restart mysql
+  ansible.builtin.service:
+    name: "{{ mysql_service }}"
+    state: restarted
+- name: restart dbha-agent
+  ansible.builtin.service:
+    name: dbha-agent
+    state: restarted
+- name: restart keepalived
+  ansible.builtin.service:
+    name: keepalived
+    state: restarted

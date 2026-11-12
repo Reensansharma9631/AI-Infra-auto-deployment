@@ -1,0 +1,15 @@
+# Packages the MASTER automation machine needs (installed from the local core repo)
+nginx
+python3-venv
+python3-pip
+chrony
+openssl
+rsync
+unzip
+zip
+curl
+jq
+sshpass
+openssh-client
+ethtool
+python3-apt

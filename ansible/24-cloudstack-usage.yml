@@ -1,0 +1,6 @@
+---
+- name: CloudStack usage server
+  hosts: "{{ cs_usage_hosts | default('cs_usage:cs_mgmt[0]') }}"
+  become: true
+  gather_facts: true
+  roles: [cs_usage]

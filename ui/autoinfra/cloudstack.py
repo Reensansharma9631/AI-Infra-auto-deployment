@@ -1,0 +1,567 @@
+"""CloudStack: 8-step deployment wizard (Ansible job) and zone/pod/cluster/host/storage/network management (CloudStack API)."""
+import ipaddress, json, os, time
+
+from flask import Blueprint, g, jsonify, render_template, request
+
+from . import auth, catalog, csapi, db, drivers, inventory, jobs, packages, validators as V
+
+bp = Blueprint("cloudstack", __name__)
+STEPS = ["requirements", "management", "database", "mq", "systemvm", "zone", "cluster", "review"]
+STEP_LABELS = ["Requirements", "Management Server", "Database", "Message Queue", "System VMs", "Zones & Pods", "Clusters & Hosts",
+               "Review & Deploy"]
+OS_CHOICES = {"ubuntu-24.04": ("debian", "Ubuntu 24.04 LTS"), "ubuntu-22.04": ("debian", "Ubuntu 22.04 LTS"),
+              "rocky-9": ("rhel", "Rocky Linux 9"), "alma-9": ("rhel", "AlmaLinux 9"), "rhel-9": ("rhel", "RHEL 9"),
+              "ol-9": ("rhel", "Oracle Linux 9")}
+DEFAULTS = {
+    "requirements": {"mode": "offline", "version": catalog.PRODUCTS["cloudstack"]["versions"][0], "os": "ubuntu-24.04",
+                     "templates": True, "database": True, "mq": False, "monitoring": True, "examples": True, "deploy_type": "full"},
+    "management": {"host_ids": [], "lb_host_ids": [], "hostname": "cloudstack-mgmt", "vip": "", "network": "", "netmask": "255.255.255.0",
+                   "gateway": "", "timezone": "Asia/Kolkata", "ntp": "", "ssl": True, "firewall": True, "usage": False},
+    "database": {"strategy": "gtid_agent", "host_ids": [], "vip": "", "port": 3306},
+    "mq": {"enabled": False, "host_ids": []},
+    "systemvm": {"template": "", "hypervisor": "KVM"},
+    "zone": {"name": "Zone-1", "dns1": "", "dns2": "", "internal_dns1": "", "vlan_range": "100-200", "guest_cidr": "10.1.1.0/24",
+             "pod_name": "Pod-1", "pod_gateway": "", "pod_netmask": "255.255.255.0", "pod_start": "", "pod_end": "",
+             "public_gateway": "", "public_netmask": "255.255.255.0", "public_start": "", "public_end": "", "public_vlan": "untagged",
+             "label_mgmt": "cloudbr0", "label_guest": "cloudbr0", "label_public": "cloudbr0"},
+    "cluster": {"clusters": [{"name": "Cluster-1", "host_ids": []}], "primary_server": "", "primary_path": "/export/primary",
+                "secondary_server": "", "secondary_path": "/export/secondary", "kvm_auth": "key", "auto_bridge": True},
+}
+
+
+def state():
+    s = db.get_setting("cs_wizard") or {}
+    out = {k: dict(v) for k, v in DEFAULTS.items()}
+    for k, v in s.items():
+        if k in out and isinstance(v, dict):
+            out[k].update(v)
+    return out
+
+
+def _hosts_exist(ids, what):
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        return f"{what}: host_ids must be a list of host ids"
+    missing = [i for i in ids if not db.one("SELECT id FROM hosts WHERE id=?", (i,))]
+    return f"{what}: unknown host id(s) {missing}" if missing else None
+
+
+def validate(step, d, full=None):
+    full = full or state()
+    e = {}
+    if step == "requirements":
+        e = V.collect(("mode", V.choice(d.get("mode"), ["offline", "online"], "mode")),
+                      ("version", V.version(d.get("version"))),
+                      ("os", V.choice(d.get("os"), list(OS_CHOICES), "OS")),
+                      ("deploy_type", V.choice(d.get("deploy_type", "full"), ["full", "custom"], "deployment type")))
+    elif step == "management":
+        ids = d.get("host_ids", [])
+        e = V.collect(("host_ids", _hosts_exist(ids, "management servers") or (None if 1 <= len(ids) <= 3 else "choose 1-3 management servers")),
+                      ("hostname", V.hostname(d.get("hostname"))),
+                      ("netmask", V.netmask(d.get("netmask")) if d.get("netmask") else None),
+                      ("timezone", V.timezone(d.get("timezone"))))
+        if d.get("network"):
+            err = V.cidr(d["network"])
+            if err:
+                e["network"] = err
+        if d.get("gateway"):
+            err = V.ipv4(d["gateway"])
+            if err:
+                e["gateway"] = err
+            elif d.get("network") and not V.cidr(d["network"]):
+                err = V.ip_in(d["gateway"], d["network"])
+                if err:
+                    e["gateway"] = err
+        if len(ids) > 1 and not d.get("vip"):
+            e["vip"] = "a VIP is required with 2-3 management servers (HAProxy + keepalived)"
+        if len(ids) > 1 or d.get("vip"):
+            # HAProxy binds VIP:8080/8250; CloudStack itself listens on 0.0.0.0:8080/8250 -> they cannot share a host
+            lb = d.get("lb_host_ids", [])
+            err = _hosts_exist(lb, "load balancer hosts")
+            if err:
+                e["lb_host_ids"] = err
+            elif not 1 <= len(lb) <= 2:
+                e["lb_host_ids"] = "choose 1-2 load balancer hosts for the VIP (HAProxy + keepalived); they may be the database hosts"
+            elif set(lb) & set(ids if isinstance(ids, list) else []):
+                e["lb_host_ids"] = "load balancer hosts must not be management servers (both use ports 8080 and 8250)"
+        if d.get("vip"):
+            err = V.ipv4(d["vip"])
+            if err:
+                e["vip"] = err
+            elif db.one("SELECT id FROM hosts WHERE ip=?", (d["vip"],)):
+                e["vip"] = "the VIP must be a free address, not a host IP"
+        for n in [x.strip() for x in str(d.get("ntp", "")).split(",") if x.strip()]:
+            err = V.host_or_ip(n)
+            if err:
+                e["ntp"] = err
+    elif step == "database":
+        st = drivers.DB_STRATEGIES.get(d.get("strategy"))
+        if not st:
+            e["strategy"] = f"strategy must be one of {', '.join(drivers.DB_STRATEGIES)}"
+        ids = d.get("host_ids", [])
+        err = _hosts_exist(ids, "database servers")
+        if err:
+            e["host_ids"] = err
+        elif st and len(ids) not in st["nodes"]:
+            e["host_ids"] = f"{st['name']} needs {' or '.join(map(str, st['nodes']))} node(s); {len(ids)} selected"
+        if st and len(ids) > 1:
+            if not d.get("vip"):
+                e["vip"] = "a database VIP is required for an HA set"
+            elif V.ipv4(d["vip"]):
+                e["vip"] = V.ipv4(d["vip"])
+            elif db.one("SELECT id FROM hosts WHERE ip=?", (d["vip"],)):
+                e["vip"] = "the VIP must be a free address, not a host IP"
+            mvip = full["management"].get("vip")
+            if mvip and d.get("vip") == mvip:
+                e["vip"] = "database VIP and management VIP must differ"
+        err = V.port(d.get("port", 3306))
+        if err:
+            e["port"] = err
+    elif step == "mq":
+        if d.get("enabled"):
+            ids = d.get("host_ids", [])
+            err = _hosts_exist(ids, "RabbitMQ") or (None if len(ids) in (1, 3) else "RabbitMQ needs 1 or 3 nodes")
+            if err:
+                e["host_ids"] = err
+    elif step == "systemvm":
+        e = V.collect(("hypervisor", V.choice(d.get("hypervisor"), ["KVM"], "hypervisor")))
+        t = d.get("template", "")
+        if t and not db.one("SELECT id FROM repo_items WHERE repo IN ('cloudstack','templates') AND path=?", (t,)):
+            e["template"] = "template not found in the master repository (upload it first)"
+    elif step == "zone":
+        e = V.collect(("name", V.name(d.get("name"), "zone name")), ("dns1", V.ipv4(d.get("dns1", ""))),
+                      ("vlan_range", V.vlan_range(d.get("vlan_range"))), ("guest_cidr", V.cidr(d.get("guest_cidr", ""))),
+                      ("pod_name", V.name(d.get("pod_name"), "pod name")),
+                      ("pod_gateway", V.ipv4(d.get("pod_gateway", ""))), ("pod_netmask", V.netmask(d.get("pod_netmask", ""))),
+                      ("public_gateway", V.ipv4(d.get("public_gateway", ""))), ("public_netmask", V.netmask(d.get("public_netmask", ""))),
+                      ("label_mgmt", V.iface(d.get("label_mgmt"))), ("label_guest", V.iface(d.get("label_guest"))),
+                      ("label_public", V.iface(d.get("label_public"))))
+        for k in ("dns2", "internal_dns1"):
+            if d.get(k) and V.ipv4(d[k]):
+                e[k] = V.ipv4(d[k])
+        if "pod_gateway" not in e and "pod_netmask" not in e:
+            err = V.ip_range(d.get("pod_start", ""), d.get("pod_end", ""), d["pod_gateway"], d["pod_netmask"])
+            if err:
+                e["pod_range"] = err
+        if "public_gateway" not in e and "public_netmask" not in e:
+            err = V.ip_range(d.get("public_start", ""), d.get("public_end", ""), d["public_gateway"], d["public_netmask"])
+            if err:
+                e["public_range"] = err
+        pv = str(d.get("public_vlan", "untagged"))
+        if pv != "untagged" and V.vlan(pv):
+            e["public_vlan"] = V.vlan(pv) + " (or 'untagged')"
+        if "pod_range" not in e and "public_range" not in e and "pod_gateway" not in e and "public_gateway" not in e \
+                and "pod_netmask" not in e and "public_netmask" not in e:
+            a = (ipaddress.IPv4Address(d["pod_start"]), ipaddress.IPv4Address(d["pod_end"]))
+            b = (ipaddress.IPv4Address(d["public_start"]), ipaddress.IPv4Address(d["public_end"]))
+            if a[0] <= b[1] and b[0] <= a[1]:
+                e["public_range"] = "public range overlaps the pod (system VM) range"
+    elif step == "cluster":
+        cl = d.get("clusters") or []
+        if not cl:
+            e["clusters"] = "add at least one cluster"
+        names = set()
+        all_ids = []
+        for i, c in enumerate(cl):
+            err = V.name(c.get("name"), "cluster name")
+            if err:
+                e[f"clusters.{i}.name"] = err
+            if c.get("name") in names:
+                e[f"clusters.{i}.name"] = "duplicate cluster name"
+            names.add(c.get("name"))
+            ids = c.get("host_ids", [])
+            err = _hosts_exist(ids, f"cluster {c.get('name')}") or (None if ids else "each cluster needs at least one KVM host")
+            if err:
+                e[f"clusters.{i}.host_ids"] = err
+            all_ids += ids if isinstance(ids, list) else []
+        if len(all_ids) != len(set(all_ids)):
+            e["clusters"] = "a KVM host can belong to one cluster only"
+        for k in ("primary", "secondary"):
+            err = V.host_or_ip(d.get(f"{k}_server", "")) if d.get(f"{k}_server") else f"{k} storage server is required"
+            if err:
+                e[f"{k}_server"] = err
+            err = V.abspath(d.get(f"{k}_path", ""))
+            if err:
+                e[f"{k}_path"] = err
+        err = V.choice(d.get("kvm_auth", "key"), ["key", "password"], "KVM authentication")
+        if err:
+            e["kvm_auth"] = err
+    else:
+        e["step"] = "unknown step"
+    return e
+
+
+def plan(s=None):
+    """What 'Start CloudStack Deployment' will do (shown on the Review step and used to build the job)."""
+    s = s or state()
+    steps = [("00-preflight.yml", "Pre-flight checks"), ("01-common.yml", "Configure repositories, NTP and base packages")]
+    if s["requirements"].get("database", True):
+        st = drivers.DB_STRATEGIES[s["database"]["strategy"]]
+        steps.append((st["playbook"], f"Install & configure MySQL ({st['name']})"))
+    if s["mq"].get("enabled"):
+        steps.append(("30-rabbitmq.yml", "Install & configure RabbitMQ"))
+    steps.append(("20-cloudstack-mgmt.yml", "Install CloudStack management server"))
+    if needs_lb(s):
+        steps.append(("21-cloudstack-lb.yml", "HAProxy + keepalived management VIP"))
+    if s["management"].get("ssl"):
+        steps.append(("31-nginx.yml", "Configure Nginx and SSL (offline certificate)"))
+    if s["management"].get("usage"):
+        steps.append(("24-cloudstack-usage.yml", "Install CloudStack usage server"))
+    steps.append(("22-nfs.yml", "Setup primary and secondary NFS storage"))
+    steps.append(("23-cloudstack-kvm.yml", "Install KVM + CloudStack agent on hosts"))
+    if s["systemvm"].get("template"):     # CloudStack 4.16+ also registers the template bundled in cloudstack-management
+        steps.append(("25-systemvm-template.yml", "Seed system VM template into secondary storage"))
+    if s["requirements"].get("monitoring"):
+        steps.append(("41-zabbix-agent.yml", "Configure monitoring agents (Zabbix)"))
+    return steps
+
+
+def extra_vars(s):
+    m, d, z = s["management"], s["database"], s["zone"]
+    hosts = {h["id"]: h for h in db.q("SELECT * FROM hosts")}
+    db_ips = [hosts[i]["ip"] for i in d["host_ids"] if i in hosts]
+    mgmt_ips = [hosts[i]["ip"] for i in m["host_ids"] if i in hosts]
+    single = d["strategy"] == "single" or len(db_ips) == 1
+    ev = {
+        "cs_version": s["requirements"]["version"], "cs_series": s["requirements"]["version"].rsplit(".", 1)[0],
+        "db_strategy": d["strategy"], "db_port": int(d.get("port", 3306)), "db_ips": db_ips,
+        "db_vip": d.get("vip") or (db_ips[0] if db_ips else ""), "db_single": single,
+        "db_acs_admin_password": inventory.secret("db_acs_admin_password", 24),
+        "cs_cloud_db_password": inventory.secret("cs_cloud_db_password", 24),
+        "db_dbha_password": inventory.secret("db_dbha_password", 24), "db_vrrp_pass": inventory.secret("db_vrrp_pass", 8),
+        "db_root_password": inventory.secret("db_root_password", 24),
+        "cs_mgmt_vip": m.get("vip") or (mgmt_ips[0] if mgmt_ips else ""), "cs_mgmt_vrrp_pass": inventory.secret("cs_mgmt_vrrp_pass", 8),
+        "cs_timezone": m.get("timezone", "UTC"), "ntp_server": (m.get("ntp") or "").split(",")[0].strip() or inventory.master_ip(),
+        "cs_firewall": bool(m.get("firewall")), "cs_ssl": bool(m.get("ssl")), "cs_mgmt_hostname": m.get("hostname"),
+        "nfs_exports": [{"name": "primary", "path": s["cluster"]["primary_path"]}, {"name": "secondary", "path": s["cluster"]["secondary_path"]}],
+        "systemvm_template_url": (inventory.repo_base() + "/" + ("cloudstack/" if not s["systemvm"]["template"].startswith("templates/") else "") +
+                                  s["systemvm"]["template"]) if s["systemvm"].get("template") else "",
+        "systemvm_secondary": f"{s['cluster']['secondary_server']}:{s['cluster']['secondary_path']}",
+        "rabbitmq_password": inventory.secret("rabbitmq_password", 20), "zabbix_server": inventory.master_ip(),
+        "kvm_bridge_name": z.get("label_mgmt", "cloudbr0"), "db_client_ips": mgmt_ips,
+        "kvm_manage_network": bool(s["cluster"].get("auto_bridge", True)),
+        "kvm_required_bridges": sorted({z.get(k) for k in ("label_mgmt", "label_guest", "label_public") if z.get(k)}),
+        "nginx_hosts": "cs_mgmt", "zabbix_agent_hosts": "all", "cs_usage_hosts": "cs_mgmt[0]",
+    }
+    return ev
+
+
+def zone_spec(s, kvm_password=None):
+    z, c = s["zone"], s["cluster"]
+    hosts = {h["id"]: h for h in db.q("SELECT * FROM hosts")}
+    clusters = []
+    for cl in c["clusters"]:
+        clusters.append({"name": cl["name"], "hosts": [{"ip": hosts[i]["ip"], "hostname": hosts[i].get("hostname"), "user": "root",
+                                                       "password": kvm_password if c.get("kvm_auth") == "password" else None}
+                                                      for i in cl["host_ids"] if i in hosts]})
+    return {"zone": {"name": z["name"], "dns1": z["dns1"], "dns2": z.get("dns2"), "internal_dns1": z.get("internal_dns1") or z["dns1"],
+                     "vlan_range": z["vlan_range"], "guest_cidr": z["guest_cidr"]},
+            "pod": {"name": z["pod_name"], "start": z["pod_start"], "end": z["pod_end"], "netmask": z["pod_netmask"], "gateway": z["pod_gateway"]},
+            "public": {"start": z["public_start"], "end": z["public_end"], "netmask": z["public_netmask"], "gateway": z["public_gateway"],
+                       "vlan": z.get("public_vlan") or "untagged"},
+            "kvm_labels": {"management": z["label_mgmt"], "guest": z["label_guest"], "public": z["label_public"]},
+            "clusters": clusters, "primary_nfs": f"{c['primary_server']}{c['primary_path']}",
+            "secondary_nfs": f"{c['secondary_server']}{c['secondary_path']}", "management_vip": extra_vars(s)["cs_mgmt_vip"]}
+
+
+def needs_lb(s):
+    return len(s["management"]["host_ids"]) > 1 or bool(s["management"].get("vip"))
+
+
+def groups(s):
+    g_ = {"cs_mgmt": s["management"]["host_ids"], "cs_db": s["database"]["host_ids"],
+          "cs_kvm": sorted({i for c in s["cluster"]["clusters"] for i in c["host_ids"]})}
+    if needs_lb(s):
+        g_["cs_lb"] = s["management"].get("lb_host_ids", [])
+    if s["mq"].get("enabled"):
+        g_["mq"] = s["mq"]["host_ids"]
+    nfs = [h["id"] for h in db.q("SELECT id, ip, hostname FROM hosts")
+           if s["cluster"]["primary_server"] in (h["ip"], h["hostname"]) or s["cluster"]["secondary_server"] in (h["ip"], h["hostname"])]
+    g_["cs_nfs"] = nfs
+    return g_
+
+
+def api_client():
+    url = db.get_setting("cs_api_url")
+    if not url:
+        raise csapi.CSError("CloudStack API is not configured - Settings > CloudStack API (or deploy with the wizard)")
+    return csapi.CS(url, db.get_setting("cs_api_key"), inventory.secret_get("cs_secret_key"),
+                    poll_interval=float(db.get_setting("cs_poll_interval", 2)))
+
+
+def _api_session(log, url, admin_user, admin_password, wait=None):
+    """Client with API keys: the saved ones, else log in (a fresh management server needs minutes before it answers)."""
+    wait = float(db.get_setting("cs_api_wait") or os.environ.get("AUTOINFRA_CS_API_WAIT", 900)) if wait is None else wait
+    cs = csapi.CS(url, poll_interval=float(db.get_setting("cs_poll_interval", 2)))
+    saved = db.get_setting("cs_api_key") and inventory.secret_get("cs_secret_key") and db.get_setting("cs_api_url") == url
+    if saved and not admin_password:
+        cs.api_key, cs.secret = db.get_setting("cs_api_key"), inventory.secret_get("cs_secret_key")
+        cs.wait_ready(wait, log)
+        return cs
+    log(f"[api] logging in to {url} as {admin_user}")
+    key, sec = cs.login_retry(admin_user, admin_password or "password", wait, log)
+    db.set_setting("cs_api_url", url)
+    db.set_setting("cs_api_key", key)
+    inventory.secret_set("cs_secret_key", sec)
+    log("[api] API keys registered and saved (Settings > CloudStack API)")
+    return cs
+
+
+@jobs.register("cs_api_prepare")
+def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
+    url = url or db.get_setting("cs_api_url") or f"http://{vip}:8080"
+    cs = _api_session(log, url, admin_user, admin_password)
+    cs.run("updateConfiguration", name="host", value=vip)
+    log(f"[api] global setting host = {vip} (management servers are restarted next)")
+    return True
+
+
+@jobs.register("cs_zone_bootstrap")
+def cs_zone_bootstrap(log, spec, url=None, admin_user="admin", admin_password=None):
+    url = url or db.get_setting("cs_api_url") or f"http://{spec['management_vip']}:8080"
+    have_keys = db.get_setting("cs_api_key") and inventory.secret_get("cs_secret_key") and db.get_setting("cs_api_url") == url
+    cs = _api_session(log, url, admin_user, None if have_keys else admin_password)
+    csapi.bootstrap_zone(cs, spec, log)
+    return True
+
+
+# ------------------------------------------------------------------ pages
+@bp.route("/cloudstack/wizard")
+@auth.login_required
+def wizard_page():
+    return render_template("cs_wizard.html", steps=list(zip(STEPS, STEP_LABELS)), os_choices=OS_CHOICES,
+                           db_options=drivers.db_options(), versions=catalog.PRODUCTS["cloudstack"]["versions"])
+
+
+@bp.route("/cloudstack/infra")
+@auth.login_required
+def infra_page():
+    return render_template("cs_infra.html")
+
+
+# ------------------------------------------------------------------ wizard API
+@bp.route("/api/cs/wizard")
+@auth.login_required
+def get_wizard():
+    s = state()
+    fam = OS_CHOICES[s["requirements"]["os"]][0]
+    return jsonify(state=s, steps=STEPS, labels=STEP_LABELS, plan=[{"playbook": p, "label": l} for p, l in plan(s)],
+                   required=packages.presence("cloudstack", fam), db_options=drivers.db_options())
+
+
+@bp.route("/api/cs/wizard/<step>", methods=["POST"])
+@auth.role_required("operator")
+def save_step(step):
+    if step not in STEPS[:-1]:
+        return jsonify(error="unknown step"), 404
+    d = request.get_json(silent=True) or {}
+    s = state()
+    merged = dict(s[step])
+    merged.update({k: v for k, v in d.items() if k in DEFAULTS[step]})
+    errs = validate(step, merged, s)
+    if errs:
+        return jsonify(error="validation failed", fields=errs), 400
+    raw = db.get_setting("cs_wizard") or {}
+    raw[step] = merged
+    db.set_setting("cs_wizard", raw)
+    auth.audit("cs.wizard.save", step)
+    return jsonify(ok=True, state=state())
+
+
+@bp.route("/api/cs/wizard/reset", methods=["POST"])
+@auth.role_required("operator")
+def reset_wizard():
+    db.set_setting("cs_wizard", {})
+    auth.audit("cs.wizard.reset")
+    return jsonify(ok=True)
+
+
+def preflight_errors(s):
+    errs = {}
+    for st in STEPS[:-1]:
+        e = validate(st, s[st], s)
+        if e:
+            errs[st] = e
+    if not errs:
+        all_ids = {i for ids in groups(s).values() for i in ids}
+        bad = [h["ip"] for h in db.q("SELECT id, ip, status FROM hosts") if h["id"] in all_ids and h["status"] not in ("ready", "ready-with-warnings")]
+        if bad:
+            errs["hosts"] = {"hosts": f"run Pre-Deployment checks first; not ready: {', '.join(bad)}"}
+        fam_want = OS_CHOICES[s["requirements"]["os"]][0]
+        wrong = [h["ip"] for h in db.q("SELECT id, ip, os_family FROM hosts") if h["id"] in all_ids and h["os_family"] and h["os_family"] != fam_want]
+        if wrong:
+            errs.setdefault("hosts", {})["os"] = f"hosts with a different OS family than {s['requirements']['os']}: {', '.join(wrong)}"
+    return errs
+
+
+@bp.route("/api/cs/wizard/deploy", methods=["POST"])
+@auth.role_required("operator")
+def deploy():
+    j = request.get_json(silent=True) or {}
+    s = state()
+    errs = preflight_errors(s)
+    if errs and not j.get("force"):
+        return jsonify(error="the wizard has errors", steps=errs), 400
+    fam = OS_CHOICES[s["requirements"]["os"]][0]
+    if not j.get("force") and s["requirements"]["mode"] == "offline":
+        miss = [i for i in packages.presence("cloudstack", fam) if not i["present"] and i["id"] in ("cloudstack-management", "cloudstack-agent", "mysql")]
+        if miss:
+            return jsonify(error="required packages are missing from the master repository: " + ", ".join(m["label"] for m in miss)), 409
+    grp = groups(s)
+    used = {i for ids in grp.values() for i in ids}
+    hosts = [h for h in db.q("SELECT * FROM hosts") if h["id"] in used]      # 'hosts: all' plays must not touch unrelated machines
+    hosts = [dict(h, roles="") for h in hosts]                               # groups come from the wizard only, not from host roles
+    pbs = plan(s) + ([("27-cloudstack-mgmt-restart.yml", "Restart management servers (apply the 'host' setting)")] if needs_lb(s) else [])
+    steps, wd = inventory.playbook_steps(pbs, hosts, extra_vars=extra_vars(s), extra_groups=grp)
+    kvm_pw = j.get("kvm_password") if s["cluster"].get("kvm_auth") == "password" else None
+    if needs_lb(s):          # agents and system VMs must talk to the VIP: set it BEFORE hosts are added, then restart
+        restart = steps.pop()
+        steps.append({"name": "Point CloudStack at the management VIP (global setting 'host')", "fn": "cs_api_prepare",
+                      "args": {"vip": extra_vars(s)["cs_mgmt_vip"], "admin_password": j.get("admin_password")}})
+        steps.append(restart)
+    steps.append({"name": "Configure zones, pods, clusters, hosts and storage (CloudStack API)", "fn": "cs_zone_bootstrap",
+                  "args": {"spec": zone_spec(s, kvm_pw), "admin_password": j.get("admin_password")}})
+    jid = jobs.start("deploy-cloudstack", f"Deploy Apache CloudStack {s['requirements']['version']}", steps,
+                     meta={"workdir": wd, "plan": [p for p, _ in plan(s)]}, secrets=[kvm_pw, j.get("admin_password")])
+    auth.audit("cs.deploy", s["requirements"]["version"], f"job {jid}")
+    return jsonify(job_id=jid), 202
+
+
+# ------------------------------------------------------------------ infrastructure API (live CloudStack)
+@bp.route("/api/cs/summary")
+@auth.login_required
+def summary():
+    try:
+        cs = api_client()
+        out = {}
+        for r in ("zones", "pods", "clusters", "hosts", "storagepools", "imagestores", "systemvms", "virtualmachines"):
+            cmd, key = csapi.RESOURCES[r]
+            out[r] = len(cs.items(cmd, key, **LIST_DEFAULTS_FOR(r)))
+        cap = cs.items("listStoragePools", "storagepool")
+        out["primary_bytes"] = sum(int(p.get("disksizetotal", 0) or 0) for p in cap)
+        types = {}
+        for p in cap:
+            t = p.get("type") or "NFS"
+            types[t] = types.get(t, 0) + 1
+        out["primary_types"] = types
+        return jsonify(configured=True, **out)
+    except csapi.CSError as e:
+        return jsonify(configured=False, error=str(e))
+
+
+def LIST_DEFAULTS_FOR(r):  # noqa: N802
+    return dict(csapi.LIST_DEFAULTS.get(r, {}))
+
+
+@bp.route("/api/cs/<resource>")
+@auth.login_required
+def list_resource(resource):
+    if resource not in csapi.RESOURCES:
+        return jsonify(error="unknown resource"), 404
+    cmd, key = csapi.RESOURCES[resource]
+    params = LIST_DEFAULTS_FOR(resource)
+    for k in ("zoneid", "podid", "clusterid", "keyword", "type"):
+        if request.args.get(k):
+            params[k] = request.args[k]
+    try:
+        return jsonify(items=api_client().items(cmd, key, **params))
+    except csapi.CSError as e:
+        return jsonify(error=str(e), items=[]), 502
+
+
+CREATE = {
+    "zones": ("createZone", {"name": V.name, "dns1": V.ipv4, "internaldns1": V.ipv4}, {"networktype": "Advanced"}),
+    "pods": ("createPod", {"zoneid": None, "name": V.name, "gateway": V.ipv4, "netmask": V.netmask, "startip": V.ipv4, "endip": V.ipv4}, {}),
+    "clusters": ("addCluster", {"zoneid": None, "podid": None, "clustername": V.name}, {"clustertype": "CloudManaged", "hypervisor": "KVM"}),
+    "hosts": ("addHost", {"zoneid": None, "podid": None, "clusterid": None, "url": None}, {"hypervisor": "KVM", "username": "root"}),
+    "storagepools": ("createStoragePool", {"zoneid": None, "podid": None, "clusterid": None, "name": V.name, "url": None},
+                     {"scope": "cluster", "hypervisor": "KVM"}),
+    "imagestores": ("addImageStore", {"zoneid": None, "name": V.name, "url": V.nfs_url}, {"provider": "NFS"}),
+    "vlanipranges": ("createVlanIpRange", {"zoneid": None, "gateway": V.ipv4, "netmask": V.netmask, "startip": V.ipv4, "endip": V.ipv4},
+                     {"forvirtualnetwork": "true"}),
+    "serviceofferings": ("createServiceOffering", {"name": V.name, "displaytext": None, "cpunumber": None, "cpuspeed": None, "memory": None}, {}),
+}
+
+
+@bp.route("/api/cs/<resource>", methods=["POST"])
+@auth.role_required("operator")
+def create_resource(resource):
+    if resource not in CREATE:
+        return jsonify(error="cannot create this resource here"), 404
+    cmd, fields, fixed = CREATE[resource]
+    j = request.get_json(silent=True) or {}
+    errs = {}
+    for f, fn in fields.items():
+        if f not in j or j[f] in ("", None):
+            errs[f] = f"{f} is required"
+        elif fn:
+            e = fn(j[f])
+            if e:
+                errs[f] = e
+    if resource == "hosts" and not str(j.get("url", "")).startswith("http://"):
+        errs["url"] = "url must be http://<host ip>"
+    if resource == "storagepools" and V.nfs_url(j.get("url", "")):
+        errs["url"] = V.nfs_url(j.get("url", ""))
+    if resource == "serviceofferings":
+        for f, lo, hi in (("cpunumber", 1, 256), ("cpuspeed", 100, 10000), ("memory", 128, 4194304)):
+            if f not in errs:
+                e = V.int_between(j.get(f), lo, hi, f)
+                if e:
+                    errs[f] = e
+    if resource in ("pods", "vlanipranges") and not errs:
+        e = V.ip_range(j["startip"], j["endip"], j["gateway"], j["netmask"])
+        if e:
+            errs["startip"] = e
+    if errs:
+        return jsonify(error="validation failed", fields=errs), 400
+    params = dict(fixed)
+    params.update({k: j[k] for k in j if k in fields or k in ("password", "vlan", "dns2", "internaldns2", "guestcidraddress", "tags",
+                                                                "storagetype", "offerha", "endip", "domainid")})
+    try:
+        res = api_client().run(cmd, **params)
+    except csapi.CSError as e:
+        auth.audit(f"cs.create.{resource}", j.get("name") or j.get("clustername") or j.get("url"), str(e), ok=False)
+        return jsonify(error=str(e)), 502
+    auth.audit(f"cs.create.{resource}", j.get("name") or j.get("clustername") or j.get("url"))
+    return jsonify(result=res), 201
+
+
+@bp.route("/api/cs/<resource>/<rid>/<action>", methods=["POST"])
+@auth.role_required("operator")
+def resource_action(resource, rid, action):
+    a = csapi.ACTIONS.get((resource, action))
+    if not a:
+        return jsonify(error=f"action '{action}' is not available for {resource}"), 404
+    if action in ("delete", "destroy") and not auth.can("admin"):
+        return jsonify(error="admin role required to delete"), 403
+    cmd, idp, extra = a
+    try:
+        res = api_client().run(cmd, **{idp: rid}, **extra)
+    except csapi.CSError as e:
+        auth.audit(f"cs.{resource}.{action}", rid, str(e), ok=False)
+        return jsonify(error=str(e)), 502
+    auth.audit(f"cs.{resource}.{action}", rid)
+    return jsonify(result=res)
+
+
+@bp.route("/api/cs/topology")
+@auth.login_required
+def topology():
+    try:
+        cs = api_client()
+        zones = cs.items("listZones", "zone")
+        out = []
+        for z in zones:
+            pods = []
+            for p in cs.items("listPods", "pod", zoneid=z["id"]):
+                cls = []
+                for c in cs.items("listClusters", "cluster", zoneid=z["id"]):
+                    if c.get("podid") != p["id"]:
+                        continue
+                    hosts = [{"name": h.get("name"), "ip": h.get("ipaddress", h.get("name")), "state": h.get("state")}
+                             for h in cs.items("listHosts", "host", zoneid=z["id"], type="Routing") if h.get("clusterid") == c["id"]]
+                    cls.append({"name": c["name"], "id": c["id"], "hosts": hosts})
+                pods.append({"name": p["name"], "id": p["id"], "clusters": cls})
+            out.append({"name": z["name"], "id": z["id"], "state": z.get("allocationstate"), "pods": pods})
+        return jsonify(configured=True, zones=out)
+    except csapi.CSError as e:
+        return jsonify(configured=False, error=str(e), zones=[])

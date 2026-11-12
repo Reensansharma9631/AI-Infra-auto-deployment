@@ -1,0 +1,44 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["80/tcp", "443/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Install nginx from the local repo
+  ansible.builtin.package: {name: "{{ nginx_pkgs }}", state: present}
+- name: TLS directory
+  ansible.builtin.file: {path: /etc/nginx/autoinfra-tls, state: directory, mode: "0700"}
+  when: nginx_ssl | bool
+- name: Offline self-signed certificate (replace with your CA's later)
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -nodes -newkey rsa:3072 -days {{ nginx_cert_days }}
+      -keyout /etc/nginx/autoinfra-tls/server.key -out /etc/nginx/autoinfra-tls/server.crt
+      -subj "/CN={{ node_hostname | default(inventory_hostname) }}" -addext "subjectAltName=IP:{{ ansible_host }}"
+    creates: /etc/nginx/autoinfra-tls/server.crt
+  when: nginx_ssl | bool
+- name: Site configuration
+  ansible.builtin.template: {src: site.conf.j2, dest: "{{ nginx_conf_file }}", mode: "0644"}
+  notify: reload nginx
+- name: Enable the site (Ubuntu)
+  ansible.builtin.file: {src: "{{ nginx_conf_file }}", dest: "{{ nginx_enable_link }}", state: link}
+  when: nginx_enable_link | length > 0
+  notify: reload nginx
+- name: Disable the default site (Ubuntu)
+  ansible.builtin.file: {path: /etc/nginx/sites-enabled/default, state: absent}
+  when: ansible_facts['os_family'] == 'Debian'
+  notify: reload nginx
+- name: SELinux - let nginx proxy to the backend (RHEL)
+  ansible.builtin.command: setsebool -P httpd_can_network_connect 1
+  when: ansible_facts['os_family'] == 'RedHat' and ansible_facts['selinux']['status'] | default('disabled') == 'enabled'
+  changed_when: false
+- name: Configuration test
+  ansible.builtin.command: nginx -t
+  changed_when: false
+- name: nginx running
+  ansible.builtin.service: {name: nginx, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool

@@ -1,0 +1,6 @@
+---
+db_port: 3306
+db_client_ips: []
+pxc_cluster_name: autoinfra-pxc
+db_vrrp_id: 53
+db_vip_prefix: 24

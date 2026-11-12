@@ -1,0 +1,20 @@
+# Installed on OpenStack (Kolla-Ansible) nodes + master registry host
+docker.io
+python3-docker
+python3-venv
+python3-pip
+python3-apt
+chrony
+curl
+jq
+rsync
+lvm2
+thin-provisioning-tools
+nfs-common
+ethtool
+docker-registry
+skopeo
+git
+iputils-ping
+tzdata
+python3-dbus

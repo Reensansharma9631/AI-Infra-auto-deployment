@@ -1,0 +1,2 @@
+---
+oracle_pkgs: [oracle-database-preinstall-19c, unzip]

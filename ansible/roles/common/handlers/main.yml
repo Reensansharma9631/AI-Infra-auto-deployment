@@ -1,0 +1,4 @@
+---
+- name: restart chrony
+  ansible.builtin.service: {name: "{{ chrony_service }}", state: restarted}
+  when: autoinfra_services | default(true) | bool

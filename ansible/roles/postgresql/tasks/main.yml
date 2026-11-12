@@ -1,0 +1,50 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ pg_port }}/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Install PostgreSQL from the local repo
+  ansible.builtin.package: {name: "{{ pg_pkgs }}", state: present}
+- name: Initialise the cluster (RHEL needs an explicit initdb)
+  ansible.builtin.command:
+    cmd: postgresql-setup --initdb
+    creates: /var/lib/pgsql/data/PG_VERSION
+  when: ansible_facts['os_family'] == 'RedHat'
+- name: Find postgresql.conf
+  ansible.builtin.shell: "find {{ pg_conf_glob }} -name postgresql.conf | head -1"
+  register: pgconf
+  changed_when: false
+- name: Config file must exist
+  ansible.builtin.assert: {that: pgconf.stdout | length > 0, fail_msg: "postgresql.conf not found under {{ pg_conf_glob }}", quiet: true}
+- name: Listen address and port
+  ansible.builtin.lineinfile:
+    path: "{{ pgconf.stdout }}"
+    regexp: "^#?\\s*{{ item.k }}\\s*="
+    line: "{{ item.k }} = {{ item.v }}"
+  loop:
+    - {k: listen_addresses, v: "'{{ pg_listen }}'"}
+    - {k: port, v: "{{ pg_port }}"}
+  notify: restart postgresql
+- name: Client network access (scram-sha-256)
+  ansible.builtin.lineinfile:
+    path: "{{ pgconf.stdout | dirname }}/pg_hba.conf"
+    line: "host all all {{ pg_allowed_cidr }} scram-sha-256"
+  when: pg_allowed_cidr | length > 0
+  notify: restart postgresql
+- name: Apply
+  ansible.builtin.meta: flush_handlers
+- name: PostgreSQL running
+  ansible.builtin.service: {name: "{{ pg_service }}", state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+- name: Password for the postgres role
+  ansible.builtin.command:
+    cmd: psql -v ON_ERROR_STOP=1 -c "ALTER ROLE postgres PASSWORD '{{ pg_admin_password }}'"
+  become_user: postgres
+  changed_when: false
+  no_log: true
+  when: (autoinfra_services | default(true) | bool) and pg_admin_password is defined

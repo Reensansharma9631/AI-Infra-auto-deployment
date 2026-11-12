@@ -1,0 +1,8 @@
+# managed by airgap-installer (base; instances live in conf.d/)
+global_defs {
+    router_id {{ node_hostname }}
+    script_user root
+    enable_script_security
+}
+
+include /etc/keepalived/conf.d/*.conf

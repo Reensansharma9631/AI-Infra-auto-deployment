@@ -1,0 +1,6 @@
+---
+- name: Oracle Database 19c prerequisites
+  hosts: oracle
+  become: true
+  gather_facts: true
+  roles: [oracle_prereq]

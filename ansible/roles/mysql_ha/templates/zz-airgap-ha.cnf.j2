@@ -1,0 +1,34 @@
+# managed by airgap-installer - named zz-* so it loads AFTER Ubuntu's mysqld.cnf (bind-address=127.0.0.1) and wins
+[mysqld]
+bind-address                 = 0.0.0.0
+mysqlx                       = OFF
+server_id                    = {{ db_server_id }}
+report_host                  = {{ ansible_host }}
+default_storage_engine       = InnoDB
+# CloudStack recommended
+innodb_rollback_on_timeout   = 1
+innodb_lock_wait_timeout     = 600
+max_connections              = 1000
+# durable binlog + GTID replication
+log_bin                      = mysql-bin
+binlog_format                = ROW
+sync_binlog                  = 1
+innodb_flush_log_at_trx_commit = 1
+binlog_expire_logs_seconds   = 604800
+gtid_mode                    = ON
+enforce_gtid_consistency     = ON
+log_replica_updates          = ON
+skip_replica_start           = ON
+relay_log_recovery           = ON
+replica_net_timeout          = 10
+# every node boots read-only; dbha-agent decides who may write (prevents split brain after a crash)
+read_only                    = ON
+super_read_only              = ON
+# semi-sync (no commit is acknowledged until one replica has the data) + clone (re-seed without dumps)
+plugin_load_add              = semisync_source.so
+plugin_load_add              = semisync_replica.so
+plugin_load_add              = mysql_clone.so
+rpl_semi_sync_source_enabled = OFF
+rpl_semi_sync_replica_enabled = ON
+rpl_semi_sync_source_timeout = 5000
+rpl_semi_sync_source_wait_for_replica_count = 1

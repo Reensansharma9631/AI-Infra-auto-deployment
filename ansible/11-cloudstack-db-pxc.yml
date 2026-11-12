@@ -1,0 +1,8 @@
+---
+# Percona XtraDB Cluster (3-node Galera, synchronous) + keepalived VIP for CloudStack.
+- name: CloudStack database (Percona XtraDB Cluster)
+  hosts: cs_db
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles: [pxc]

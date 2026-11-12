@@ -1,0 +1,3 @@
+---
+zabbix_agent_pkgs: [zabbix-agent2]
+zabbix_agent_conf: /etc/zabbix/zabbix_agent2.conf

@@ -1,0 +1,32 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["2049/tcp", "2049/udp", "111/tcp", "111/udp", "20048/tcp", "20048/udp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Install the NFS server
+  ansible.builtin.package: {name: "{{ nfs_pkgs }}", state: present}
+
+- name: Who may mount (default = the /24 of this node)
+  ansible.builtin.set_fact:
+    nfs_allowed: "{{ nfs_allowed_cidrs if (nfs_allowed_cidrs | length) > 0 else [(ansible_host.split('.')[:3] | join('.')) ~ '.0/24'] }}"
+
+- name: Export directories
+  ansible.builtin.file: {path: "{{ item.path }}", state: directory, mode: "0755"}
+  loop: "{{ nfs_exports }}"
+
+- name: /etc/exports
+  ansible.builtin.template: {src: exports.j2, dest: /etc/exports, mode: "0644"}
+  notify: re-export
+
+- name: Apply exports now
+  ansible.builtin.meta: flush_handlers
+
+- name: NFS server running
+  ansible.builtin.service: {name: "{{ nfs_service }}", state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool

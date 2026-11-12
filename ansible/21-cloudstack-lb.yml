@@ -1,0 +1,9 @@
+---
+# HAProxy + keepalived VIP in front of the CloudStack management servers (can share hosts with cs_db).
+- name: CloudStack management load balancer
+  hosts: cs_lb
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles:
+    - cs_lb

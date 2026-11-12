@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Deployment Jobs{% endblock %}{% block page %}jobs{% endblock %}
+{% block content %}
+<h1>Deployment Jobs</h1><p class="sub-h">Every deployment, check, extraction and download runs as a job with a full log.</p>
+<div class="grid g2"><div class="card"><h2>Jobs <span class="r"><select id="jb-kind"><option value="">All</option><option value="deploy">Deployments</option><option value="component">Components</option><option value="checks">Checks</option><option value="extract">Extraction</option><option value="download">Downloads</option></select></span></h2><div id="jb-list"></div></div>
+  <div class="card"><h2>Job <span class="muted" id="jb-t"></span><span class="r"><button class="btn sm d" id="jb-cancel" hidden data-need="operator">Cancel</button><a class="btn sm o" id="jb-dl" hidden>Download log</a></span></h2><div id="jb-steps"></div><div class="term mt" id="jb-log">Select a job</div></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

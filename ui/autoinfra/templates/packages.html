@@ -1,0 +1,82 @@
+{% extends "base.html" %}{% block title %}Package Repository{% endblock %}{% block page %}packages{% endblock %}
+{% block content %}
+<h1>Package Repository</h1><p class="sub-h">Upload offline bundles (ZIP / TAR / ISO). Files are verified (SHA256), extracted, sorted per component and indexed as local apt / dnf repositories.</p>
+<div class="tabs" data-tabs="pkg">
+  <button data-t="upload">{{ ic('upload') }} Upload Packages</button><button data-t="online">{{ ic('cloudup') }} Online Download</button>
+  <button data-t="repo">{{ ic('box') }} Repository</button><button data-t="jobs">{{ ic('list') }} Extraction Jobs</button>
+  <button data-t="required">{{ ic('check') }} Verification</button><button data-t="disk">{{ ic('disk') }} Disk Usage</button>
+</div>
+
+<div class="pane" data-pane="upload">
+  <div class="card">
+    <div class="drop" id="drop">{{ ic('cloudup') }}<h3>Upload Required Packages (ZIP / TAR / ISO)</h3>
+      <p>Upload all offline packages for CloudStack, OpenStack, KVM, databases, OS repositories and applications.<br>Files are uploaded in resumable 8 MB chunks, then verified and extracted automatically.</p>
+      <div class="flex" style="justify-content:center">
+        <select id="up-repo" style="max-width:260px" aria-label="target repository">{% for k, v in repos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+        <label class="btn" for="up-file" style="margin:0;color:#fff">Choose Files</label><input id="up-file" type="file" multiple hidden>
+        <span class="btn o" id="drop-hint">Drag &amp; Drop Files Here</span></div>
+      <p class="hint mt">Optional: put the expected SHA256 next to the file as <span class="mono">&lt;file&gt;.sha256</span> in the same selection - it is checked on the server.</p>
+    </div>
+  </div>
+  <div class="grid g2">
+    <div class="card"><h2>Upload Progress <span class="r muted" id="up-total"></span></h2><div id="up-list"><div class="empty">No uploads in this session</div></div></div>
+    <div class="card"><h2>Automatic Extraction &amp; Verification</h2>
+      <div class="clist" id="x-steps">
+        <div><span class="dot d-mut"></span>Extracting files to local repository</div><div><span class="dot d-mut"></span>Verifying checksums (SHA256)</div>
+        <div><span class="dot d-mut"></span>Categorizing packages by component</div><div><span class="dot d-mut"></span>Creating local apt / yum / dnf repositories</div>
+        <div><span class="dot d-mut"></span>Indexing and scanning dependencies</div></div>
+      <h2 class="mt">Extraction Log <span class="muted" id="x-name"></span></h2><div class="term" id="x-log">Waiting for an upload...</div>
+    </div>
+  </div>
+</div>
+
+<div class="pane" data-pane="online">
+  <div class="card">
+    <div class="note" id="online-note">This master is air-gapped. Choose what you need, download the <b>download kit</b>, run it on any internet-connected machine (Ubuntu or Rocky/Alma with Docker) and upload the ZIP it creates.</div>
+    <div class="tabs mt" data-tabs="prod" data-hash="no" data-tabs-scope>
+      {% for k, p in products.items() %}<button data-t="{{ k }}">{{ p.label }}</button>{% endfor %}</div>
+    <div class="grid g2">
+      <div>
+        <div class="row">
+          <div class="f"><label>Version</label><select id="on-version"></select></div>
+          <div class="f"><label>OS Version</label><select id="on-os"><option value="ubuntu-24.04">Ubuntu 24.04 LTS</option><option value="ubuntu-22.04">Ubuntu 22.04 LTS</option><option value="rocky-9">Rocky Linux 9</option><option value="alma-9">AlmaLinux 9</option><option value="rhel-9">RHEL 9</option></select></div>
+          <div class="f"><label>Package Type</label><select id="on-type"><option value="all">All (Recommended)</option><option value="pkgs">Packages only</option></select></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="on-deps" checked> Include dependencies</label>
+        <label class="chk"><input type="checkbox" id="on-tpl" checked> Download templates (System VMs)</label>
+        <label class="chk"><input type="checkbox" id="on-iso"> Download ISO images</label>
+        <label class="chk"><input type="checkbox" id="on-ex" checked> Download example configuration files</label>
+        <div class="flex mt"><button class="btn" id="on-kit">{{ ic('dl') }} Download kit (.sh)</button>
+          <button class="btn o" id="on-fetch" data-need="operator">{{ ic('cloudup') }} Fetch Required Packages (online master)</button></div>
+      </div>
+      <div><h2>Selected Components <span class="r"><label class="chk" style="margin:0"><input type="checkbox" id="on-all" checked> Select All</label></span></h2>
+        <div id="on-comps"></div><p class="hint">Sizes are approximate. Total: <b id="on-total">-</b></p></div>
+    </div>
+  </div>
+  <div class="card" id="on-job-card" hidden><h2>Download Progress</h2><div class="bar"><i id="on-bar" style="width:0"></i></div><div class="term mt" id="on-log"></div></div>
+</div>
+
+<div class="pane" data-pane="repo">
+  <div class="card"><h2>Repositories <span class="r"><input type="text" id="repo-q" placeholder="Search packages" style="width:240px"></span></h2><div id="repo-sum"></div></div>
+  <div class="card"><h2 id="items-h">Packages</h2><div id="repo-items"></div></div>
+</div>
+
+<div class="pane" data-pane="jobs">
+  <div class="card"><h2>Extraction Jobs</h2><div id="xjobs"></div></div>
+  <div class="card"><h2>Job log <span class="muted" id="xj-name"></span></h2><div class="term" id="xj-log">Select a job</div></div>
+</div>
+
+<div class="pane" data-pane="required">
+  <div class="card"><h2>Verification - required packages per product
+      <span class="r"><select id="rq-product">{% for k, p in products.items() %}<option value="{{ k }}">{{ p.label }}</option>{% endfor %}</select>
+      <select id="rq-family"><option value="debian">Ubuntu (apt)</option><option value="rhel">RHEL / Rocky / Alma (dnf)</option></select></span></h2>
+    <div id="rq-list"></div></div>
+  <div class="card"><h2>Integrity check (SHA256 of every stored file)</h2>
+    <div class="flex"><select id="vf-repo" style="max-width:260px">{% for k, v in repos.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+      <button class="btn" id="vf-run" data-need="operator">Verify now</button><button class="btn o" id="dep-run">Scan dependencies</button></div>
+    <div id="vf-out" class="mt"></div></div>
+</div>
+
+<div class="pane" data-pane="disk"><div class="card"><h2>Disk Usage</h2><div id="disk"></div></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='packages.js') }}?v={{ version }}"></script>{% endblock %}

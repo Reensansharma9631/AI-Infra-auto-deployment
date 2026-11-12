@@ -1,0 +1,50 @@
+---
+# Oracle Database is licensed software: AutoInfra prepares the OS (packages, users, kernel limits, directories) and
+# copies YOUR installer zip from the master repository. The database itself is installed with Oracle's own runInstaller.
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Prerequisite packages from the local repo
+  ansible.builtin.package: {name: "{{ oracle_pkgs }}", state: present}
+- name: Groups
+  ansible.builtin.group: {name: "{{ item }}", state: present}
+  loop: [oinstall, dba]
+- name: oracle user
+  ansible.builtin.user: {name: oracle, group: oinstall, groups: dba, shell: /bin/bash}
+- name: Kernel parameters
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/97-autoinfra-oracle.conf
+    mode: "0644"
+    content: |
+      fs.aio-max-nr = 1048576
+      fs.file-max = 6815744
+      kernel.shmmni = 4096
+      kernel.sem = 250 32000 100 128
+      net.ipv4.ip_local_port_range = 9000 65500
+      net.core.rmem_default = 262144
+      net.core.rmem_max = 4194304
+      net.core.wmem_default = 262144
+      net.core.wmem_max = 1048576
+- name: Limits for the oracle user
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/97-autoinfra-oracle.conf
+    mode: "0644"
+    content: |
+      oracle soft nofile 1024
+      oracle hard nofile 65536
+      oracle soft nproc 16384
+      oracle hard nproc 16384
+      oracle soft stack 10240
+      oracle hard stack 32768
+- name: Directories
+  ansible.builtin.file: {path: "{{ item }}", state: directory, owner: oracle, group: oinstall, mode: "0775"}
+  loop: ["{{ oracle_base }}", "{{ oracle_base }}/product/19.0.0/dbhome_1", /u01/app/oraInventory]
+- name: Copy the installer you uploaded (databases repository)
+  ansible.builtin.get_url:
+    url: "{{ airgap_repo_base }}/databases/files/{{ oracle_installer }}"
+    dest: "/u01/app/{{ oracle_installer }}"
+    owner: oracle
+    mode: "0644"
+  when: oracle_installer | length > 0
+- name: Next step
+  ansible.builtin.debug:
+    msg: "OS prepared. As 'oracle': unzip the installer into {{ oracle_base }}/product/19.0.0/dbhome_1 and run ./runInstaller -silent with your response file."

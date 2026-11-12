@@ -1,0 +1,43 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["{{ db_port }}/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+- name: Validate inputs
+  ansible.builtin.assert:
+    that:
+      - db_acs_admin_password is defined
+      - (db_acs_admin_password | length) >= 16
+    fail_msg: "db_acs_admin_password (>=16 chars) is required"
+    quiet: true
+- name: Install MySQL from the local repo
+  ansible.builtin.package: {name: "{{ mysql_pkgs }}", state: present}
+- name: Server configuration
+  ansible.builtin.template: {src: zz-autoinfra.cnf.j2, dest: "{{ mysql_conf_dir }}/zz-autoinfra.cnf", mode: "0644"}
+  notify: restart mysql
+- name: Data directory initialised (RHEL does it on first start, Ubuntu in postinst)
+  ansible.builtin.command:
+    cmd: "{{ mysqld_bin }} --no-defaults --initialize-insecure --user=mysql --datadir={{ mysql_datadir }}"
+    creates: "{{ mysql_datadir }}/mysql"
+- name: Apply config
+  ansible.builtin.meta: flush_handlers
+- name: MySQL running
+  ansible.builtin.service: {name: "{{ mysql_service }}", state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+- name: CloudStack admin account
+  ansible.builtin.command:
+    cmd: mysql -uroot
+    stdin: |
+      {% for ip in (db_client_ips + ['localhost', ansible_host]) | unique %}
+      CREATE USER IF NOT EXISTS 'acsadmin'@'{{ ip }}' IDENTIFIED BY '{{ db_acs_admin_password }}';
+      GRANT ALL PRIVILEGES ON *.* TO 'acsadmin'@'{{ ip }}' WITH GRANT OPTION;
+      {% endfor %}
+      FLUSH PRIVILEGES;
+  when: autoinfra_services | default(true) | bool
+  changed_when: false
+  no_log: true

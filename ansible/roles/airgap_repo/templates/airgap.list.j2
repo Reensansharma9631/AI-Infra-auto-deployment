@@ -1,0 +1,7 @@
+# managed by AutoInfra - offline repositories on the master
+{% for n in (airgap_deb_repos if airgap_deb_repos is defined else airgap_repo_names) %}
+deb [trusted=yes] {{ airgap_repo_base }}/{{ n }}/deb ./
+{% endfor %}
+{% for l in airgap_repos %}
+{{ l }}
+{% endfor %}

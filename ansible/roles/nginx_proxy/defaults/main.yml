@@ -1,0 +1,5 @@
+---
+nginx_upstream: ""            # ip:port; empty = CloudStack VIP:8080
+nginx_server_name: "_"
+nginx_ssl: true
+nginx_cert_days: 1825

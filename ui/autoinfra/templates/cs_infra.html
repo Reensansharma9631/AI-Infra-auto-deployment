@@ -1,0 +1,29 @@
+{% extends "base.html" %}{% block title %}CloudStack Infrastructure{% endblock %}{% block page %}csinfra{% endblock %}
+{% block content %}
+<h1>Zones, Clusters, KVM Hosts &amp; Storage (CloudStack)</h1><p class="sub-h">Live view of the CloudStack API configured in Settings (or registered by the deployment wizard).</p>
+<div id="cs-cfg"></div>
+<div class="tabs" data-tabs="cs">
+  <button data-t="zones">Zones</button><button data-t="pods">Pods</button><button data-t="clusters">Clusters</button><button data-t="hosts">KVM Hosts</button>
+  <button data-t="storage">Storage</button><button data-t="networks">Networks</button><button data-t="systemvms">System VMs</button>
+  <button data-t="templates">Templates</button><button data-t="offerings">Service Offerings</button></div>
+<div class="tiles" id="cs-tiles"></div>
+<div class="pane" data-pane="zones"><div class="grid g2">
+  <div class="card"><h2>Zones <span class="r"><button class="btn sm" data-add="zones" data-need="operator">{{ ic('plus') }} Add Zone</button></span></h2><div id="t-zones"></div></div>
+  <div class="card"><h2>Pods <span class="r"><button class="btn sm" data-add="pods" data-need="operator">{{ ic('plus') }} Add Pod</button></span></h2><div id="t-pods"></div></div></div></div>
+<div class="pane" data-pane="pods"><div class="card"><h2>Pods <span class="r"><button class="btn sm" data-add="pods" data-need="operator">{{ ic('plus') }} Add Pod</button></span></h2><div id="t-pods2"></div></div></div>
+<div class="pane" data-pane="clusters"><div class="card"><h2>Clusters <span class="r"><button class="btn sm" data-add="clusters" data-need="operator">{{ ic('plus') }} Add Cluster</button></span></h2><div id="t-clusters"></div></div></div>
+<div class="pane" data-pane="hosts"><div class="card"><h2>KVM Hosts <span class="r"><button class="btn sm" data-add="hosts" data-need="operator">{{ ic('plus') }} Add KVM Host</button></span></h2><div id="t-hosts"></div></div></div>
+<div class="pane" data-pane="storage"><div class="grid g2">
+  <div class="card"><h2>Primary Storage <span class="r"><button class="btn sm" data-add="storagepools" data-need="operator">{{ ic('plus') }} Add Storage</button></span></h2><div id="t-storagepools"></div></div>
+  <div class="card"><h2>Secondary Storage <span class="r"><button class="btn sm" data-add="imagestores" data-need="operator">{{ ic('plus') }} Add Secondary</button></span></h2><div id="t-imagestores"></div></div></div></div>
+<div class="pane" data-pane="networks"><div class="grid g2">
+  <div class="card"><h2>Physical networks</h2><div id="t-physicalnetworks"></div></div>
+  <div class="card"><h2>Public IP ranges <span class="r"><button class="btn sm" data-add="vlanipranges" data-need="operator">{{ ic('plus') }} Add Network</button></span></h2><div id="t-vlanipranges"></div></div></div>
+  <div class="card"><h2>Guest networks</h2><div id="t-networks"></div></div></div>
+<div class="pane" data-pane="systemvms"><div class="card"><h2>System VMs</h2><div id="t-systemvms"></div></div><div class="card"><h2>Virtual Routers</h2><div id="t-routers"></div></div></div>
+<div class="pane" data-pane="templates"><div class="card"><h2>Templates</h2><div id="t-templates"></div></div></div>
+<div class="pane" data-pane="offerings"><div class="card"><h2>Service Offerings <span class="r"><button class="btn sm" data-add="serviceofferings" data-need="operator">{{ ic('plus') }} Add Offering</button></span></h2><div id="t-serviceofferings"></div></div></div>
+<div class="modal" id="m-cs"><div class="box"><header id="m-cs-t">Add<button data-close>&times;</button></header><form class="bd" id="f-cs"></form>
+  <footer><button class="btn g" data-close>Cancel</button><button class="btn" id="b-cs">Create</button></footer></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

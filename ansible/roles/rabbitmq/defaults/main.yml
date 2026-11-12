@@ -1,0 +1,3 @@
+---
+rabbitmq_user: autoinfra
+rabbitmq_management: true

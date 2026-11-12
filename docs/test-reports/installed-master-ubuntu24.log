@@ -1,0 +1,11 @@
+PASS installed master: HTTPS login through nginx
+PASS installed master: API answers as the logged-in admin
+PASS installed master: 8 MB chunked upload through nginx, extracted + indexed  [150 MB]
+PASS installed master: nginx serves the apt repository on :8081/repo/
+PASS installed master: node added with a password (key bootstrap as user autoinfra)  [added, SSH key installed]
+PASS installed master: SSH checks from the installed service  [ready-with-warnings]
+PASS installed master: real ansible-playbook from the venv ran 01-common.yml on the node  [ubu24                      : ok=8    changed=5    unreachable=0    failed=0    skipped=3    rescued=0    ignored=0   ]
+PASS installed master: component deploy (Nginx) from the installed UI
+
+8/8 checks passed
+rc=0

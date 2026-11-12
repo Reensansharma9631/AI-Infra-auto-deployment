@@ -1,0 +1,6 @@
+---
+- name: RabbitMQ (1 or 3 nodes)
+  hosts: mq
+  become: true
+  gather_facts: true
+  roles: [rabbitmq]

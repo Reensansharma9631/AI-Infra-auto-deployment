@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% block title %}Components{% endblock %}{% block page %}components{% endblock %}
+{% block content %}
+<h1>Component Deployment &amp; Management</h1><p class="sub-h">Each card deploys one component with Ansible from the local repository onto the hosts you choose, on Ubuntu or RHEL-family nodes.</p>
+<div class="tabs" data-tabs="cat">{% for k, v in categories %}<button data-t="{{ k }}">{{ v }}</button>{% endfor %}</div>
+<div class="cards" id="cards"></div>
+<div class="card mt"><h2>Recent Component Actions <a class="r" href="/jobs">View All</a></h2><div id="actions"></div></div>
+<div class="modal" id="m-comp"><div class="box wide"><header id="mc-title">Component<button data-close>&times;</button></header>
+  <div class="bd"><div class="grid g2">
+    <form id="mc-form"><h2>Configuration</h2><div class="errs"></div><div id="mc-fields"></div>
+      <div class="f"><label>Version</label><input type="text" name="__version"></div></form>
+    <div><h2>Target hosts</h2><select id="mc-hosts" multiple size="10" style="width:100%"></select><p class="hint" id="mc-hint"></p>
+      <h2 class="mt">Package Source</h2><label class="chk"><input type="radio" name="src" checked> Use Local Repository (Offline)</label>
+      <label class="chk"><input type="checkbox" id="mc-check"> Dry run (ansible --check --diff)</label><label class="chk"><input type="checkbox" id="mc-force"> Skip the "host is ready" check</label></div></div>
+    <div id="mc-job" hidden class="mt"><h2>Job <span class="muted" id="mc-jt"></span></h2><div class="term" id="mc-log"></div></div></div>
+  <footer><button class="btn g" id="mc-status" data-need="operator">{{ ic('refresh') }} Check status</button><button class="btn g" id="mc-save" data-need="operator">Save configuration</button>
+    <button class="btn" id="mc-deploy" data-need="operator">{{ ic('play') }} Deploy</button></footer></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

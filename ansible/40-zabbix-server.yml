@@ -1,0 +1,6 @@
+---
+- name: Zabbix server + frontend
+  hosts: zabbix_server
+  become: true
+  gather_facts: true
+  roles: [zabbix_server]

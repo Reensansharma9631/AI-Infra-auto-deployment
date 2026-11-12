@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block title %}Billing &amp; Cost{% endblock %}{% block page %}billing{% endblock %}
+{% block content %}
+<h1>Billing &amp; Cost</h1><p class="sub-h">Rate card applied to CloudStack usage (running VMs, volumes, public IPs) plus the monthly cost of the physical hosts.</p>
+<div class="tiles" id="bl-tiles"></div>
+<div class="grid g64">
+  <div class="card"><h2>Cost per account <span class="r"><a class="btn sm o" href="/api/billing/export.csv">{{ ic('dl') }} CSV</a><button class="btn sm o" id="bl-xlsx">Excel report</button></span></h2><div id="bl-acc"></div></div>
+  <div class="card"><h2>Rate card</h2><form id="bl-form"><div class="errs"></div>
+    <div class="row"><div class="f"><label>Currency</label><input type="text" name="currency" maxlength="3"></div><div class="f"><label>per vCPU / hour</label><input type="number" step="0.01" name="vcpu_hour" data-num></div></div>
+    <div class="row"><div class="f"><label>per GB RAM / hour</label><input type="number" step="0.01" name="ram_gb_hour" data-num></div><div class="f"><label>per GB storage / month</label><input type="number" step="0.01" name="storage_gb_month" data-num></div></div>
+    <div class="row"><div class="f"><label>per public IP / month</label><input type="number" step="0.01" name="public_ip_month" data-num></div><div class="f"><label>per physical host / month</label><input type="number" step="1" name="host_month" data-num></div></div>
+    <div class="row"><div class="f"><label>licences / support per month</label><input type="number" step="1" name="license_month" data-num></div></div>
+    <label class="chk"><input type="checkbox" name="stopped_vm_storage_only"> Stopped VMs pay storage only</label>
+    <button type="button" class="btn mt" id="bl-save" data-need="admin">Save rates</button></form></div>
+</div>
+<div class="card"><h2>Cost breakdown</h2><div id="bl-bars"></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

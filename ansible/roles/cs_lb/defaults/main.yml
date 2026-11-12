@@ -1,0 +1,6 @@
+---
+cs_mgmt_vip_prefix: 24
+cs_mgmt_vrrp_id: 52
+cs_mgmt_vrrp_iface: ""
+cs_ui_port: 8080
+cs_agent_port: 8250

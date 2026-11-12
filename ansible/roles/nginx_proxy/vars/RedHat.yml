@@ -1,0 +1,4 @@
+---
+nginx_pkgs: [nginx, openssl]
+nginx_conf_file: /etc/nginx/conf.d/autoinfra.conf
+nginx_enable_link: ""

@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Dashboard{% endblock %}{% block page %}dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1><p class="sub-h">Air-gapped CloudStack &amp; OpenStack - deploy, manage and monitor from this master.</p>
+<div class="tiles" id="tiles"></div>
+<div class="grid g64">
+  <div class="card"><h2>Deployment flow</h2>
+    <div class="steps" id="flow"></div>
+    <div class="grid g3">
+      <a class="btn o" href="/packages#upload">{{ ic('upload') }} Upload packages</a>
+      <a class="btn o" href="/predeploy#test">{{ ic('server') }} Add &amp; check hosts</a>
+      <a class="btn o" href="/cloudstack/wizard">{{ ic('cloud') }} CloudStack wizard</a>
+      <a class="btn o" href="/openstack/wizard">{{ ic('layers') }} OpenStack wizard</a>
+      <a class="btn o" href="/components">{{ ic('queue') }} Components</a>
+      <a class="btn o" href="/monitoring">{{ ic('pulse') }} Monitoring</a>
+    </div></div>
+  <div class="card"><h2>Open alerts <a class="r" href="/monitoring#alerts">View all</a></h2><div id="alerts"></div></div>
+</div>
+<div class="card"><h2>Recent jobs <a class="r" href="/jobs">All jobs</a></h2><div id="jobs"></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

@@ -1,0 +1,4 @@
+---
+pg_pkgs: [postgresql, postgresql-contrib, python3-psycopg2]
+pg_service: postgresql
+pg_conf_glob: /etc/postgresql

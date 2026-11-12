@@ -1,0 +1,14 @@
+---
+- name: Install the CloudStack usage server from the local repo
+  ansible.builtin.package: {name: [cloudstack-usage], state: present}
+- name: Same db.properties/key as the management server
+  ansible.builtin.copy:
+    src: "{{ cs_key_dir | default('/var/lib/airgap-ui/cs-keys') }}/{{ item }}"
+    dest: "/etc/cloudstack/usage/{{ item }}"
+    mode: "0640"
+  loop: [db.properties, key]
+  no_log: true
+  failed_when: false
+- name: Usage server running
+  ansible.builtin.service: {name: cloudstack-usage, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool

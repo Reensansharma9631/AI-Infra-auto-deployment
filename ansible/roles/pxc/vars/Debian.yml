@@ -1,0 +1,4 @@
+---
+pxc_pkgs: [percona-xtradb-cluster, keepalived, python3-pymysql]
+pxc_conf: /etc/mysql/mysql.conf.d/zz-autoinfra-pxc.cnf
+pxc_service: mysql

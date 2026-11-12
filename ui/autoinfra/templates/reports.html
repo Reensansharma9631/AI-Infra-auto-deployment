@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}Reports{% endblock %}{% block page %}reports{% endblock %}
+{% block content %}
+<h1>Reports</h1><p class="sub-h">PDF and Excel reports generated on the master from live data.</p>
+<div class="card"><h2>Generate</h2><div class="row">
+  <div class="f"><label>Report</label><select id="rp-kind">{% for k, v in kinds.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+  <div class="f"><label>Format</label><select id="rp-fmt"><option value="pdf">PDF</option><option value="xlsx">Excel (.xlsx)</option></select></div>
+  <div class="f"><label>&nbsp;</label><button class="btn" id="rp-go">{{ ic('file') }} Generate</button></div></div></div>
+<div class="card"><h2>Generated reports</h2><div id="rp-list"></div></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pages.js') }}?v={{ version }}"></script>{% endblock %}

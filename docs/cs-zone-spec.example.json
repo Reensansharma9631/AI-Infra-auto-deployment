@@ -1,0 +1,13 @@
+{
+  "mgmt_url": "http://10.0.0.20:8080",
+  "admin_password": "password",
+  "management_vip": "10.0.0.20",
+  "zone": {"name": "zone1", "dns1": "10.0.0.5", "internal_dns1": "10.0.0.5", "vlan_range": "200-299", "guest_cidr": "10.1.1.0/24"},
+  "pod": {"name": "pod1", "start": "10.0.0.100", "end": "10.0.0.130", "netmask": "255.255.255.0", "gateway": "10.0.0.1"},
+  "public": {"start": "10.0.1.100", "end": "10.0.1.150", "netmask": "255.255.255.0", "gateway": "10.0.1.1", "vlan": "untagged"},
+  "kvm_labels": {"management": "cloudbr0", "guest": "cloudbr0", "public": "cloudbr0"},
+  "cluster": {"name": "cluster1"},
+  "kvm_hosts": [{"ip": "10.0.0.41", "user": "root", "password": "SET-AT-RUN-TIME"}],
+  "primary_nfs": "10.0.0.60/export/primary",
+  "secondary_nfs": "10.0.0.60/export/secondary"
+}

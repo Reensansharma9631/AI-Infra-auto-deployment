@@ -1,0 +1,18 @@
+# managed by AutoInfra - Percona XtraDB Cluster (Galera). 3 nodes; quorum survives one failure.
+[mysqld]
+bind-address = 0.0.0.0
+server_id = {{ groups['cs_db'].index(inventory_hostname) + 1 }}
+binlog_format = ROW
+default_storage_engine = InnoDB
+innodb_autoinc_lock_mode = 2
+innodb_rollback_on_timeout = 1
+innodb_lock_wait_timeout = 600
+max_connections = 1000
+wsrep_provider = /usr/lib/galera4/libgalera_smm.so
+wsrep_cluster_name = {{ pxc_cluster_name }}
+wsrep_cluster_address = gcomm://{{ groups['cs_db'] | map('extract', hostvars, 'ansible_host') | join(',') }}
+wsrep_node_address = {{ ansible_host }}
+wsrep_node_name = {{ inventory_hostname }}
+wsrep_sst_method = xtrabackup-v2
+pxc_strict_mode = PERMISSIVE
+pxc-encrypt-cluster-traffic = OFF

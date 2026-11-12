@@ -1,0 +1,8 @@
+---
+db_port: 3306
+db_agent_port: 8686
+db_vip_prefix: 24
+db_vrrp_id: 51
+db_vrrp_iface: ""
+db_allow_single_survivor: false
+db_client_ips: []

@@ -1,0 +1,182 @@
+[
+ {
+  "check": "upload: Ubuntu offline bundle verified+extracted+indexed",
+  "ok": true,
+  "detail": "job 1"
+ },
+ {
+  "check": "upload: duplicate chunk answered 409 with the resume offset",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "repo: core apt repository holds nginx, mysql-server, postgresql",
+  "ok": true,
+  "detail": "127 pkgs"
+ },
+ {
+  "check": "upload: probe bundle (rpm + deb) indexed, dnf repodata created",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "repo: dependency scan over 120+ real Ubuntu packages runs",
+  "ok": true,
+  "detail": "61 groups provided by the base OS"
+ },
+ {
+  "check": "hosts: Ubuntu added with a password - master key installed, password not stored",
+  "ok": true,
+  "detail": "added, SSH key installed"
+ },
+ {
+  "check": "security: the Ubuntu root password is nowhere in the database",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "checks: ubuntu detected as debian family over SSH",
+  "ok": true,
+  "detail": "Ubuntu 24.04 LTS -> ready-with-warnings"
+ },
+ {
+  "check": "checks: ubuntu OS compatibility = supported, master repo reachable, root access",
+  "ok": true,
+  "detail": "{\"Ping (TCP/SSH port)\": \"pass\", \"SSH login\": \"pass\", \"Root / sudo access\": \"pass\", \"OS compatibility\": \"pass\", \"CPU cores\": \"pass\", \"Memory\": \"pass\", \"Disk free on /\": \"pass\", \"CPU virtualization (KVM)\": \"warn\", \"Clock skew vs master\": \"pass\", \"Package manager\": \"pass\", \"Master repository reachable\": \"pass\", \"Updates available\": \"warn\", \"Required packages\": \"warn\", \"Security checks\": \"warn\", \"Python for Ansible\": \"pass\"}"
+ },
+ {
+  "check": "checks: ubuntu usable for deployment",
+  "ok": true,
+  "detail": "ready-with-warnings"
+ },
+ {
+  "check": "checks: almalinux detected as rhel family over SSH",
+  "ok": true,
+  "detail": "AlmaLinux 9.3 (Shamrock Pampas Cat) -> ready-with-warnings"
+ },
+ {
+  "check": "checks: almalinux OS compatibility = supported, master repo reachable, root access",
+  "ok": true,
+  "detail": "{\"Ping (TCP/SSH port)\": \"pass\", \"SSH login\": \"pass\", \"Root / sudo access\": \"pass\", \"OS compatibility\": \"pass\", \"CPU cores\": \"pass\", \"Memory\": \"pass\", \"Disk free on /\": \"pass\", \"CPU virtualization (KVM)\": \"warn\", \"Clock skew vs master\": \"pass\", \"Package manager\": \"pass\", \"Master repository reachable\": \"pass\", \"Updates available\": \"pass\", \"Required packages\": \"warn\", \"Security checks\": \"pass\", \"Python for Ansible\": \"pass\"}"
+ },
+ {
+  "check": "checks: almalinux usable for deployment",
+  "ok": true,
+  "detail": "ready-with-warnings"
+ },
+ {
+  "check": "checks: unreachable host reported",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "ansible: 01-common.yml succeeded on Ubuntu 24.04 and AlmaLinux 9",
+  "ok": true,
+  "detail": "(9, 6, 0, 0)(9, 5, 0, 0)"
+ },
+ {
+  "check": "alma: dnf uses ONLY the master repository and installed autoinfra-probe from it",
+  "ok": true,
+  "detail": "autoinfra-probe-1.0-1.el9.noarch almalinux-appstream.repo.airgap-disabled almalinux-baseos.repo.airgap-disabled almalinux-crb.repo.airgap-disabled almalinux-extras.repo.airgap-disabled almalinux-higha"
+ },
+ {
+  "check": "ubuntu: apt uses ONLY the master repository; chrony, jq, rsync installed; chrony -> master",
+  "ok": true,
+  "detail": "install ok installed chrony install ok installed jq install ok installed rsync airgap.list server 10.79.0.1 iburst "
+ },
+ {
+  "check": "ansible: 01-common.yml second run is idempotent on both OS (changed=0)",
+  "ok": true,
+  "detail": "(9, 0, 0, 0) (9, 0, 0, 0)"
+ },
+ {
+  "check": "component: MySQL 8 single deployed on Ubuntu by Ansible",
+  "ok": true,
+  "detail": "(9, 2, 0, 0)"
+ },
+ {
+  "check": "verify: MySQL 8 single files/packages correct on the node",
+  "ok": true,
+  "detail": "OK"
+ },
+ {
+  "check": "component: PostgreSQL 16 deployed on Ubuntu by Ansible",
+  "ok": true,
+  "detail": "(10, 3, 0, 0)"
+ },
+ {
+  "check": "verify: PostgreSQL 16 files/packages correct on the node",
+  "ok": true,
+  "detail": "OK"
+ },
+ {
+  "check": "component: Nginx + offline TLS deployed on Ubuntu by Ansible",
+  "ok": true,
+  "detail": "(12, 6, 0, 0)"
+ },
+ {
+  "check": "verify: Nginx + offline TLS files/packages correct on the node",
+  "ok": true,
+  "detail": "nginx: the configuration file /etc/nginx/nginx.conf syntax is ok\nnginx: configuration file /etc/nginx/nginx.conf test is successful\nOK"
+ },
+ {
+  "check": "component: NFS primary/secondary deployed on Ubuntu by Ansible",
+  "ok": true,
+  "detail": "(10, 4, 0, 0)"
+ },
+ {
+  "check": "verify: NFS primary/secondary files/packages correct on the node",
+  "ok": true,
+  "detail": "OK"
+ },
+ {
+  "check": "component: RabbitMQ deployed on Ubuntu by Ansible",
+  "ok": true,
+  "detail": "(10, 4, 0, 0)"
+ },
+ {
+  "check": "verify: RabbitMQ files/packages correct on the node",
+  "ok": true,
+  "detail": "OK"
+ },
+ {
+  "check": "kit: bundle made by the UI's KVM download kit uploads and makes 'KVM / Libvirt' ready",
+  "ok": true,
+  "detail": ""
+ },
+ {
+  "check": "component: KVM / libvirt deployed on Ubuntu from the kit bundle",
+  "ok": true,
+  "detail": "(10, 5, 0, 0)OK\n"
+ },
+ {
+  "check": "component: HAProxy + keepalived (management VIP) deployed and both configs valid",
+  "ok": true,
+  "detail": "Configuration file is valid\nOK"
+ },
+ {
+  "check": "live: nginx on Ubuntu redirects :80 -> https and proxies :443 to the upstream (the master repo)",
+  "ok": true,
+  "detail": "http=301 https-body='Origin: AutoInfra\\nLabel: AutoInfra\\nSuite'"
+ },
+ {
+  "check": "idempotency: second Nginx deployment changes nothing",
+  "ok": true,
+  "detail": "(12, 0, 0, 0)"
+ },
+ {
+  "check": "ui: component cards show Installed",
+  "ok": true,
+  "detail": "{\"cloudstack-management\": \"not_installed\", \"cloudstack-usage\": \"not_installed\", \"cloudstack-agent\": \"not_installed\", \"systemvm-templates\": \"not_installed\", \"mysql\": \"installed\", \"postgresql\": \"installed\", \"oracle\": \"not_installed\", \"mongodb\": \"not_installed\", \"rabbitmq\": \"installed\", \"nginx\": \"installed\", \"haproxy\": \"installed\", \"nfs\": \"installed\", \"kvm-libvirt\": \"installed\", \"zabbix-server\": \"not_installed\", \"zabbix-agent\": \"not_installed\", \"ollama\": \"not_installed\"}"
+ },
+ {
+  "check": "monitoring: metrics collected from both nodes over SSH",
+  "ok": true,
+  "detail": "{\"10.79.0.22\": [3.0, 15.4, 41.0], \"10.79.0.21\": [3.0, 15.4, 41.0]}"
+ },
+ {
+  "check": "reports: infrastructure Excel generated from the lab data",
+  "ok": true,
+  "detail": ""
+ }
+]

@@ -1,0 +1,6 @@
+---
+- name: Ollama AI platform (offline binary + model blobs from the master)
+  hosts: ollama
+  become: true
+  gather_facts: true
+  roles: [ollama]

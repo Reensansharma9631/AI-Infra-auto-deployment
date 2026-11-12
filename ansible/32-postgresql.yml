@@ -1,0 +1,6 @@
+---
+- name: PostgreSQL
+  hosts: postgresql
+  become: true
+  gather_facts: true
+  roles: [postgresql]

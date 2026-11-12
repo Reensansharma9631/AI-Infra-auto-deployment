@@ -1,0 +1,4 @@
+---
+- name: restart rabbitmq
+  ansible.builtin.service: {name: rabbitmq-server, state: restarted}
+  when: autoinfra_services | default(true) | bool

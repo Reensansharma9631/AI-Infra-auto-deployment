@@ -1,0 +1,74 @@
+---
+- name: Open the needed ports when a host firewall is active
+  ansible.builtin.include_role:
+    name: airgap_repo
+    tasks_from: firewall
+  vars:
+    fw_ports: ["22/tcp", "1798/tcp", "16509/tcp", "16514/tcp", "5900-6100/tcp", "49152-49216/tcp"]
+
+- name: OS specific names (Ubuntu / RHEL family)
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Install KVM (+ the CloudStack agent) from the local repo
+  ansible.builtin.package:
+    name: "{{ kvm_pkgs + (kvm_agent_pkgs if kvm_cloudstack_agent | default(true) | bool else []) }}"
+    state: present
+
+- name: Hardware virtualisation available?
+  ansible.builtin.stat: {path: /dev/kvm}
+  register: kvm_dev
+
+- name: Warn when /dev/kvm is missing (nested virtualisation disabled / VM without VT-x)
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} has no /dev/kvm - VMs would be emulated (very slow). Enable VT-x/nested virtualisation."
+  when: not kvm_dev.stat.exists
+
+- name: libvirtd must listen on tcp (CloudStack requirement)
+  ansible.builtin.template: {src: libvirtd.conf.j2, dest: /etc/libvirt/libvirtd.conf, mode: "0644"}
+  when: kvm_libvirt_tcp
+  notify: restart libvirtd
+
+- name: libvirtd started with --listen
+  ansible.builtin.template: {src: agent-libvirt-default.j2, dest: "{{ libvirt_defaults_file }}", mode: "0644"}
+  when: kvm_libvirt_tcp
+  notify: restart libvirtd
+
+- name: Socket activation conflicts with --listen on Ubuntu - mask the sockets
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+    state: stopped
+  loop: [libvirtd.socket, libvirtd-ro.socket, libvirtd-admin.socket, libvirtd-tls.socket, libvirtd-tcp.socket]
+  when: kvm_libvirt_tcp and (autoinfra_services | default(true) | bool)
+  notify: restart libvirtd
+  failed_when: false
+
+- name: Bridge for CloudStack - detected and created automatically, with rollback
+  ansible.builtin.include_tasks: bridge.yml
+  when: kvm_manage_network | bool
+
+- name: /etc/modprobe.d exists (minimal images ship without kmod)
+  ansible.builtin.file: {path: /etc/modprobe.d, state: directory, mode: "0755"}
+  when: kvm_nested | default(false) | bool
+
+- name: Nested virtualization (optional)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/autoinfra-kvm-nested.conf
+    content: "options kvm_intel nested=1\noptions kvm_amd nested=1\n"
+    mode: "0644"
+  when: kvm_nested | default(false) | bool
+
+- name: Management server SSH key for addHost (no root password needed)
+  when: kvm_mgmt_pubkey | default('') | length > 0
+  block:
+    - name: /root/.ssh
+      ansible.builtin.file: {path: /root/.ssh, state: directory, mode: "0700"}
+    - name: authorized_keys entry
+      ansible.builtin.lineinfile: {path: /root/.ssh/authorized_keys, line: "{{ kvm_mgmt_pubkey }}", create: true, mode: "0600"}
+
+- name: libvirtd running
+  ansible.builtin.service: {name: libvirtd, state: started, enabled: true}
+  when: autoinfra_services | default(true) | bool
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers

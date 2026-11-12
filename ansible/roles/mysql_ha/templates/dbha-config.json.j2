@@ -1,0 +1,18 @@
+{
+  "self_ip": "{{ ansible_host }}",
+  "nodes": [
+{% for h in groups['cs_db'] %}
+    {"ip": "{{ hostvars[h].ansible_host }}", "server_id": {{ hostvars[h].db_server_id }}}{{ "," if not loop.last else "" }}
+{% endfor %}
+  ],
+  "mysql_port": {{ db_port }},
+  "http_port": {{ db_agent_port }},
+  "http_bind": "{{ ansible_host }}",
+  "user": "dbha",
+  "password": "{{ db_dbha_password }}",
+  "allow_single_survivor": {{ db_allow_single_survivor | bool | to_json }},
+  "socket": "{{ mysql_socket }}",
+  "restart_cmd": ["systemctl", "restart", "{{ mysql_service }}"],
+  "failed_cmd": ["systemctl", "is-failed", "--quiet", "{{ mysql_service }}"],
+  "log_level": "INFO"
+}

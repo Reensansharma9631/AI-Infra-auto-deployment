@@ -1,0 +1,4 @@
+---
+cs_key_dir: /var/lib/airgap-ui/cs-keys      # on the master: copy of db.properties + key (needed to add servers later)
+cs_mgmt_conf_dir: /etc/cloudstack/management
+cs_ui_port: 8080
