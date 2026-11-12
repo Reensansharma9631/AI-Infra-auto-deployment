@@ -717,3 +717,28 @@ def test_extra_storage_spec_exports_and_bootstrap(app, operator, lab, cs_mock):
     assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
     assert sorted(p["name"] for p in cs_mock.pools.values()) == ["primary-2", "primary-3", "primary-nfs"]
     assert sorted(x["name"] for x in cs_mock.stores.values()) == ["secondary-2", "secondary-nfs"]
+
+
+
+def test_rerun_does_not_touch_the_host_setting_again(app, operator, lab, cs_mock):
+    """Changing 'host' pushes the server list to every agent (slow on real CloudStack) and needs restarts: only when it changes."""
+    o = _single(lab)
+    o["management"] = {"host_ids": [lab["mgmt1"], lab["mgmt2"]], "vip": "", "lb_host_ids": []}
+    fill(operator, lab, **o)
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    for _ in range(2):
+        j = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password"}).get_json()["job_id"], 120)
+        assert j["state"] == "success", operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert cs_mock.config_updates.count("host") == 1
+    log = operator.get(f"/api/jobs/{j['id']}/log.txt").data.decode()
+    assert "global setting host already 10.0.0.10,10.0.0.11" in log
+
+
+def test_restart_playbook_only_restarts_on_a_new_host_setting():
+    import yaml as _y, pathlib as _p
+    pb = _y.safe_load((_p.Path(__file__).resolve().parent.parent / "ansible/27-cloudstack-mgmt-restart.yml").read_text())
+    tasks = {t["name"]: t for t in pb[0]["tasks"]}
+    assert "cs_host_setting" in str(tasks["Remember the 'host' setting this server was restarted for"]) and tasks["Restart"]["when"] == "hs is changed"

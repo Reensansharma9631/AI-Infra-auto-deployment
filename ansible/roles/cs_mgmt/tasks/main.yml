@@ -92,6 +92,7 @@
         owner: root
         group: cloud
         mode: "{{ item.mode }}"
+        force: false            # once only: this server's own cluster.node.IP is set below (a copy each run rewrote it)
       loop:
         - {name: db.properties, mode: "0640"}
         - {name: key, mode: "0640"}

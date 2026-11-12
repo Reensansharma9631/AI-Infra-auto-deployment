@@ -15,7 +15,8 @@ def is_auth_error(e):
 
 # synchronous commands that do real work before answering: addHost SSHes to the host, runs cloudstack-setup-agent and
 # waits for the agent (minutes on real CloudStack 4.22 - a 30 s read timeout aborted it, job 19); pools/stores mount NFS
-SLOW = {"addhost": 1800, "createstoragepool": 900, "addimagestore": 900, "addcluster": 300, "createzone": 300}
+SLOW = {"addhost": 1800, "createstoragepool": 900, "addimagestore": 900, "addcluster": 300, "createzone": 300,
+        "updateconfiguration": 600}   # 'host' with agent LB: CloudStack sends the new list to every agent first (job 28)
 
 
 class CS:
@@ -203,6 +204,15 @@ def wait_hosts_up(cs, zid, cl, hosts, log, wait=900, poll=5):
         time.sleep(poll)
 
 
+def set_config(cs, name, value):
+    """Global setting, only when it differs (True = changed)."""
+    cur = next((c for c in cs.items("listConfigurations", "configuration", name=name) if c.get("name") == name), None)
+    if cur is not None and str(cur.get("value")) == str(value):
+        return False
+    cs.run("updateConfiguration", name=name, value=value)
+    return True
+
+
 def bootstrap_zone(cs, spec, log=print):
     """Advanced zone with VLAN isolation. Every object is looked up by name first (safe to re-run)."""
     z, pod, pub = spec["zone"], spec["pod"], spec["public"]
@@ -276,8 +286,7 @@ def bootstrap_zone(cs, spec, log=print):
         if not cs.find("listImageStores", "imagestore", zoneid=zid, name=x["name"]):
             cs.run("addImageStore", zoneid=zid, name=x["name"], provider="NFS", url=f"nfs://{x['nfs']}")
             log(f"[zone] secondary storage {x['name']} added (nfs://{x['nfs']})")
-    if spec.get("management_vip"):
-        cs.run("updateConfiguration", name="host", value=spec["management_vip"])
+    if spec.get("management_vip") and set_config(cs, "host", spec["management_vip"]):
         log(f"[zone] global setting host = {spec['management_vip']}")
     if zone.get("allocationstate") != "Enabled":
         cs.run("updateZone", id=zid, allocationstate="Enabled")

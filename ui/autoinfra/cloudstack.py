@@ -285,6 +285,7 @@ def extra_vars(s):
         "kvm_manage_network": bool(s["cluster"].get("auto_bridge", True)),
         "kvm_required_bridges": sorted({z.get(k) for k in ("label_mgmt", "label_guest", "label_public") if z.get(k)}),
         "nginx_hosts": "cs_mgmt", "zabbix_agent_hosts": "all", "cs_usage_hosts": "cs_mgmt[0]",
+        "cs_host_setting": mgmt_host_setting(s),
     }
     ev.update(internal_net_vars(s, hosts))
     return ev
@@ -438,8 +439,10 @@ def _api_session(log, url, admin_user, admin_password, wait=None):
 def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
     url = url or db.get_setting("cs_api_url") or f"http://{vip.split(',')[0]}:8080"
     cs = _api_session(log, url, admin_user, admin_password)
-    cs.run("updateConfiguration", name="host", value=vip)
-    log(f"[api] global setting host = {vip} (management servers are restarted next)")
+    if csapi.set_config(cs, "host", vip):     # pushing a new value to every agent takes a while; unchanged = no call
+        log(f"[api] global setting host = {vip} (management servers are restarted next)")
+    else:
+        log(f"[api] global setting host already {vip}")
     return True
 
 

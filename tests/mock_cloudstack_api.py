@@ -48,6 +48,7 @@ class State:
         self.api_key, self.secret = uuid.uuid4().hex, uuid.uuid4().hex
         self.key_rotations = 0
         self.host_up_delay = 0.5
+        self.config_updates = []
         self.calls, self.polls, self.bad_signatures, self.host_passwords = [], 0, 0, []
 
     def rotate(self):
@@ -206,6 +207,11 @@ def make_server(S, port=0):
             o = {"id": nid(), "name": q["name"], "displaytext": q["displaytext"], "cpunumber": int(q.get("cpunumber", 1)),
                  "cpuspeed": int(q.get("cpuspeed", 1000)), "memory": int(q.get("memory", 512))}
             S.offerings[o["id"]] = o; return {"serviceoffering": o}
-        def c_updateconfiguration(self, q): S.config[q["name"]] = q["value"]; return {"configuration": {"name": q["name"], "value": q["value"]}}
+        def c_updateconfiguration(self, q):
+            S.config_updates.append(q["name"]); S.config[q["name"]] = q["value"]; return {"configuration": {"name": q["name"], "value": q["value"]}}
+
+        def c_listconfigurations(self, q):      # like CloudStack: 'name' is a substring match
+            m = [{"name": k, "value": v} for k, v in S.config.items() if q.get("name", "") in k]
+            return {"count": len(m), "configuration": m} if m else {}
 
     srv = ThreadingHTTPServer(("127.0.0.1", port), H); threading.Thread(target=srv.serve_forever, daemon=True).start(); return srv

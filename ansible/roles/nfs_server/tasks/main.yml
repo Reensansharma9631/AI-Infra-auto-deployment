@@ -21,7 +21,7 @@
     nfs_allowed: "{{ ((nfs_allowed_cidrs if (nfs_allowed_cidrs | length) > 0 else [(ansible_host.split('.')[:3] | join('.')) ~ '.0/24']) + nfs_extra_cidrs) | unique }}"
 
 - name: Export directories
-  ansible.builtin.file: {path: "{{ item.path }}", state: directory, mode: "0755"}
+  ansible.builtin.file: {path: "{{ item.path }}", state: directory}   # no mode: CloudStack adjusts it (SSVM) - do not fight it
   loop: "{{ nfs_exports_eff }}"
 
 - name: /etc/exports
