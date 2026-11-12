@@ -46,6 +46,11 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - **Optional extra console proxy**: wizard "Console proxies = 2" -> 2 CPVMs Running/Up on different hosts (job 38, smoke 10/10).
   Going back to 1 takes effect at the next management-server restart (the setting is not dynamic in CloudStack 4.22).
 
+- **Browser end-to-end suite** (Playwright + Chromium on the master): **58/58 passed**; deployments are now started from the
+  wizards in a real browser (tests/ui/ui_driver.py, screenshots per step). The UI's CSP blocks evaluated JavaScript (seen live).
+- **No Docker on the master**; OpenStack bundle built without Docker (skopeo, OCI layout); registry loaded 42/42 Kolla images.
+- **Time**: the master serves NTP (fixed: chrony restart); all three nodes synchronized to it, air-gapped.
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -56,7 +61,6 @@ Layout deployed through the UI API (the same calls the wizard makes):
 ## NOT VERIFIED
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
 - The Components page "Management Server" card alone (FIXES #13, known broken).
-- Browser e2e suite (Playwright not installed on this master).
 - Usage server, SSL (nginx) in front of the management UI, Zabbix monitoring on CloudStack.
 - OpenStack, OpenShift, Ollama with models, HA on real machines, RHEL-family nodes on real machines.
 - Lab caveat: all three node VMs share one /etc/machine-id (cloned). The automation no longer depends on it (explicit MACs),
