@@ -170,3 +170,11 @@ def test_helper_ignored_when_the_path_unit_watches_another_data_dir(app, monkeyp
         assert inventory.master_net_helper() is None
         ok, out = inventory.master_net("dns-update")
     assert not ok and "not installed" in out
+
+
+
+def test_setup_registry_gives_the_registry_user_its_storage():
+    """Real lab: docker-registry (user docker-registry) answered 500 'mkdir ... permission denied' on a root-owned REG_DIR."""
+    s = (ROOT / "master/setup-registry.sh").read_text()
+    i, j = s.index('mkdir -p "$REG_DIR"'), s.index("cat > /etc/docker/registry/config.yml")
+    assert 'chown -R docker-registry:docker-registry "$REG_DIR"' in s[i:j]

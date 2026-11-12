@@ -1,0 +1,83 @@
+---
+# OpenStack (Kolla) host preparation - runs before kolla-ansible bootstrap-servers.
+#  * os_stop_host_libvirt (default true): host services that clash with Kolla's containers are stopped and masked
+#    (libvirtd: Kolla runs its own nova_libvirt; mysql: port 3306 = Kolla MariaDB; the CloudStack agent/management server
+#    that need them). They are recorded in /var/lib/autoinfra/os-stopped-services so 51-openstack-release.yml restores them.
+#  * network nodes: the external (provider) interface - a dummy NIC when the name does not exist (lab without a spare NIC).
+- name: OpenStack host preparation
+  hosts: os_nodes
+  become: true
+  gather_facts: true
+  vars:
+    os_clash_services: [cloudstack-agent, cloudstack-management, cloudstack-usage, mysql, mysqld, libvirtd, libvirtd.socket,
+                        libvirtd-ro.socket, libvirtd-admin.socket, libvirtd-tcp.socket, libvirtd-tls.socket, virtqemud, virtqemud.socket]
+  tasks:
+    - name: Which clashing host services exist and run
+      ansible.builtin.shell: |
+        for s in {{ os_clash_services | join(' ') }}; do
+          if systemctl is-active --quiet "$s" 2>/dev/null || systemctl is-enabled --quiet "$s" 2>/dev/null; then echo "$s"; fi
+        done
+      register: os_clash
+      changed_when: false
+      when: os_stop_host_libvirt | default(true) | bool
+
+    - name: Remember them (for 51-openstack-release.yml)
+      ansible.builtin.lineinfile: {path: /var/lib/autoinfra/os-stopped-services, line: "{{ item }}", create: true, mode: "0644"}
+      loop: "{{ os_clash.stdout_lines | default([]) }}"
+      when: os_stop_host_libvirt | default(true) | bool
+
+    - name: Stop and mask them
+      ansible.builtin.systemd: {name: "{{ item }}", state: stopped, masked: true}
+      loop: "{{ os_clash.stdout_lines | default([]) }}"
+      when: (os_stop_host_libvirt | default(true) | bool) and (autoinfra_services | default(true) | bool)
+
+    - name: VMs left running under the host libvirt would keep their qemu processes - none may remain
+      ansible.builtin.shell: pgrep -f 'qemu-system-x86_64.*guest=' | wc -l
+      register: os_qemu
+      changed_when: false
+      failed_when: false
+
+    - name: Stop leftover host VMs (CloudStack system VMs/guests; CloudStack restarts them when it is restored)
+      ansible.builtin.shell: pkill -TERM -f 'qemu-system-x86_64.*guest=' ; sleep 10; pkill -KILL -f 'qemu-system-x86_64.*guest=' || true
+      when: (os_stop_host_libvirt | default(true) | bool) and (os_qemu.stdout | default('0') | int) > 0
+
+- name: External (provider) interface on the network nodes
+  hosts: os_network
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Does it exist?
+      ansible.builtin.command: "ip link show {{ os_external_interface }}"
+      register: os_ext
+      changed_when: false
+      failed_when: false
+
+    - name: Is it our dummy (re-runs keep the unit managed)?
+      ansible.builtin.stat: {path: /etc/systemd/system/autoinfra-os-ext.service}
+      register: os_ext_unit
+
+    - name: Remember
+      ansible.builtin.set_fact: {os_ext_is_dummy: "{{ os_ext_unit.stat.exists }}"}
+
+    - name: Dummy external interface (persistent)
+      when: os_ext.rc != 0 or os_ext_is_dummy | default(false) | bool
+      block:
+        - name: Unit
+          ansible.builtin.copy:
+            dest: /etc/systemd/system/autoinfra-os-ext.service
+            mode: "0644"
+            content: |
+              # managed by AutoInfra - external interface for Neutron when the host has no spare NIC
+              [Unit]
+              Description=AutoInfra OpenStack external interface {{ os_external_interface }}
+              Before=network-online.target
+              [Service]
+              Type=oneshot
+              RemainAfterExit=yes
+              ExecStart=/bin/sh -c 'ip link show {{ os_external_interface }} >/dev/null 2>&1 || ip link add {{ os_external_interface }} type dummy'
+              ExecStart=/usr/sbin/ip link set {{ os_external_interface }} up
+              [Install]
+              WantedBy=multi-user.target
+        - name: Up now and at boot
+          ansible.builtin.systemd: {name: autoinfra-os-ext.service, enabled: true, state: started, daemon_reload: true}
+          when: autoinfra_services | default(true) | bool

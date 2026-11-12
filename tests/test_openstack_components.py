@@ -99,8 +99,12 @@ def test_globals_storage_backend(operator, oslab, backend, lvm, nfs):
 def test_globals_airgap_and_network(operator, oslab):
     os_fill(operator, oslab, network={"registry": "", "neutron_plugin": "openvswitch", "virt_type": "qemu"})
     g = yaml.safe_load(operator.get("/api/os/preview").get_json()["globals"])
-    assert g["docker_registry"] == "10.0.0.5:5000" and g["enable_docker_repo"] is False and g["docker_registry_insecure"] is True
+    # default engine: Podman - no Docker anywhere; images from the master registry, distro podman SDK
+    assert g["kolla_container_engine"] == "podman" and g["podman_registry"] == "10.0.0.5:5000" and g["podman_registry_insecure"] is True
+    assert g["podman_sdk_python_externally_managed"] is True and g["virtualenv"] is None and "enable_docker_repo" not in g
+    assert g["docker_registry"] == "10.0.0.5:5000" and g["docker_namespace"] == "openstack.kolla"
     assert g["kolla_internal_vip_address"] == "10.0.0.50" and g["neutron_plugin_agent"] == "openvswitch" and g["nova_compute_virt_type"] == "qemu"
+    assert g["enable_haproxy"] == "yes" and g["enable_keepalived"] == "yes"
     assert g["openstack_release"] == "2026.1" and g["network_interface"] == "eth0" and g["neutron_external_interface"] == "eth1"
 
 
@@ -120,7 +124,9 @@ def test_gen_passwords():
     assert len(d["a_password"]) == 32 and d["a_password"] != d["b_secret"] and d["nova_ssh_key"] is None and d["keep"] == 1
 
 
-def test_os_deploy_needs_kolla(operator, oslab):
+def test_os_deploy_needs_kolla(operator, oslab, monkeypatch):
+    from autoinfra import openstack
+    monkeypatch.setattr(openstack, "kolla_share", lambda: None)      # independent of a real Kolla install on the test machine
     os_fill(operator, oslab)
     assert operator.post("/api/os/deploy", json={}).status_code == 409
 
@@ -154,7 +160,9 @@ def test_os_deploy_stops_on_failed_prechecks(app, operator, oslab, monkeypatch):
     monkeypatch.setenv("FAKE_KOLLA_RC_prechecks", "1")
     os_fill(operator, oslab)
     j = wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
-    assert j["state"] == "failed" and [s["state"] for s in j["steps"]][:3] == ["ok", "failed", "skipped"]
+    names = [s["name"] for s in j["steps"]]
+    i = names.index("Kolla pre-checks")
+    assert j["state"] == "failed" and [s["state"] for s in j["steps"]][i - 1:i + 2] == ["ok", "failed", "skipped"]
 
 
 def test_os_nfs_shares_file(app, operator, oslab, monkeypatch):
@@ -375,3 +383,58 @@ def test_ansible_run_api(app, admin, operator):
     assert j["state"] == "success"
     c = ansible_calls(app)[-1]
     assert c["playbook"] == "01-common.yml" and "--tags" in c["args"] and "--check" in c["args"]
+
+
+
+def test_globals_docker_engine_option(operator, oslab):
+    os_fill(operator, oslab, network={"container_engine": "docker"})
+    g = yaml.safe_load(operator.get("/api/os/preview").get_json()["globals"])
+    assert g["kolla_container_engine"] == "docker" and g["enable_docker_repo"] is False and "podman_registry" not in g
+
+
+def test_single_controller_without_vip(operator, oslab):
+    """No free IP on the lab LAN: one controller, no HAProxy/keepalived, the controller's own IP serves the APIs."""
+    os_fill(operator, oslab, network={"vip": "", "network_interface": "auto", "external_interface": "osext0"})
+    p = operator.get("/api/os/preview").get_json()
+    g = yaml.safe_load(p["globals"])
+    assert g["kolla_internal_vip_address"] == "10.0.0.11" and g["enable_haproxy"] == "no" and g["enable_keepalived"] == "no"
+    assert "network_interface" not in g and g["neutron_external_interface"] == "osext0"
+
+
+def test_three_controllers_need_a_vip(operator, oslab):
+    os_fill(operator, oslab, nodes={"controller_ids": [oslab["ctl1"], oslab["ctl2"], oslab["ctl3"]]})
+    r = operator.post("/api/os/wizard/network", json={"vip": ""})
+    assert r.status_code == 400 and "vip" in r.get_json()["fields"]
+
+
+def test_deploy_runs_prep_before_kolla(app, operator, oslab, monkeypatch):
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab)
+    j = wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
+    names = [s["name"] for s in j["steps"]]
+    assert names[:2] == ["Configure repositories, NTP and base packages", "OpenStack host preparation (external interface, clashing host services)"]
+    assert names.index("OpenStack host preparation (external interface, clashing host services)") < names.index("Bootstrap servers (docker, users, kernel settings)")
+    from conftest import ansible_calls
+    calls = ansible_calls(app)
+    prep = next(c for c in calls if c["playbook"] == "50-openstack-prep.yml")
+    assert prep["vars"]["os_external_interface"] == "eth1" and prep["vars"]["os_stop_host_libvirt"] is True
+    assert "[os_nodes]" in prep["inventory"] and "[os_network]\nctl1" in prep["inventory"]
+
+
+def test_detect_interfaces_writes_per_host_interface(app, operator, oslab, monkeypatch, tmp_path):
+    """network_interface=auto: each node's interface comes from the node (here a fake ssh)."""
+    import subprocess as sp
+    from autoinfra import openstack
+    os_fill(operator, oslab, network={"network_interface": "auto"})
+    answers = {"10.0.0.11": "ens160", "10.0.0.21": "cloudbr0", "10.0.0.22": "cloudbr0", "10.0.0.31": "eth0"}
+
+    def fake_run(cmd, **kw):
+        ip = cmd[-2].split("@")[1]
+        return sp.CompletedProcess(cmd, 0, stdout=answers[ip] + "\n", stderr="")
+    monkeypatch.setattr(sp, "run", fake_run)
+    logs = []
+    with app.app_context():
+        d = openstack.config_dir()
+        assert openstack.os_detect_interfaces(logs.append, d) is True
+        m = open(f"{d}/multinode").read()
+    assert "ansible_host=10.0.0.21" in m and "network_interface=cloudbr0" in m and "network_interface=ens160" in m

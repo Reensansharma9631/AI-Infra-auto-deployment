@@ -1,6 +1,8 @@
-# Installed on OpenStack (Kolla-Ansible) nodes + master registry host
-docker.io
-python3-docker
+# Installed on OpenStack (Kolla-Ansible) nodes + master registry host. NO Docker: Kolla runs on Podman.
+podman
+catatonit
+crun
+python3-podman
 python3-venv
 python3-pip
 python3-apt
@@ -18,3 +20,4 @@ git
 iputils-ping
 tzdata
 python3-dbus
+python3-setuptools

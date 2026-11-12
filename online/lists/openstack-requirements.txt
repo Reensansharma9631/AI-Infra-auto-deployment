@@ -2,5 +2,4 @@
 # general, docker, podman) -> no Galaxy access needed, even offline.
 ansible>=12,<13
 kolla-ansible>=22,<23
-docker
 python-openstackclient

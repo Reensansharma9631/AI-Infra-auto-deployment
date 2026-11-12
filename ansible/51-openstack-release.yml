@@ -1,0 +1,40 @@
+---
+# Give the hosts back after an OpenStack test on shared machines: stop Kolla's containers, then unmask and start the host
+# services 50-openstack-prep.yml stopped (CloudStack agent/management, MySQL, libvirtd). Kolla data stays on disk, so
+# OpenStack can be started again later (kolla-ansible deploy). Safe to re-run.
+- name: Release the hosts from OpenStack
+  hosts: os_nodes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Stop Kolla containers (podman or docker, whichever runs them)
+      ansible.builtin.shell: |
+        for e in podman docker; do
+          command -v $e >/dev/null 2>&1 || continue
+          ids=$($e ps -q --filter label=kolla_version 2>/dev/null)
+          [ -n "$ids" ] && $e stop -t 30 $ids >/dev/null && echo "stopped $(echo $ids | wc -w) $e container(s)"
+        done; true
+      register: os_stop
+      changed_when: "'stopped' in os_stop.stdout"
+
+    - name: Disable the Kolla container units (systemd-managed with podman)
+      ansible.builtin.shell: |
+        for u in $(systemctl list-unit-files 'kolla-*-container.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+          systemctl disable --now "$u" >/dev/null 2>&1 && echo "$u"
+        done; true
+      register: os_units
+      changed_when: os_units.stdout | length > 0
+
+    - name: Services stopped by 50-openstack-prep.yml
+      ansible.builtin.slurp: {src: /var/lib/autoinfra/os-stopped-services}
+      register: os_stopped
+      failed_when: false
+
+    - name: Unmask and start them again
+      ansible.builtin.systemd: {name: "{{ item }}", masked: false, enabled: true, state: started}
+      loop: "{{ (os_stopped.content | default('') | b64decode).split() | unique }}"
+      when: autoinfra_services | default(true) | bool
+      failed_when: false
+
+    - name: Forget the list
+      ansible.builtin.file: {path: /var/lib/autoinfra/os-stopped-services, state: absent}

@@ -37,7 +37,7 @@ def test_playbook_syntax(pb, tmp_path):
 
 
 def test_playbook_count():
-    assert len(PLAYBOOKS) == 21 and len(ROLES) == 19
+    assert len(PLAYBOOKS) == 23 and len(ROLES) == 19
 
 
 @pytest.mark.parametrize("role", [r for r in ROLES if (ANS / "roles" / r / "vars").is_dir()])
