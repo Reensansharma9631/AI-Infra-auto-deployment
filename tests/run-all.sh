@@ -7,7 +7,9 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 echo "== shell syntax"; for f in online/*.sh online/inner/*.sh master/*.sh tests/integration/*.sh; do bash -n "$f"; done; echo ok
-echo "== JavaScript syntax"; for f in ui/autoinfra/static/*.js; do node --check "$f"; done; echo ok
+echo "== JavaScript syntax"
+if command -v node >/dev/null; then for f in ui/autoinfra/static/*.js; do node --check "$f"; done; echo ok
+else echo "SKIPPED: node not installed (apt-get install nodejs)"; fi
 echo "== unit / API / Ansible tests"; python3 -m pytest -q -n "${JOBS:-2}"
 [ "${1:-}" = e2e ] || [ "${1:-}" = lab ] || exit 0
 echo "== browser end-to-end"; python3 -m pytest -q tests/e2e -p no:logging

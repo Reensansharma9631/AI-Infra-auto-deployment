@@ -146,6 +146,11 @@ def test_template_renders(rendered, fam, tpl):
         assert "[Service]" in text and "ExecStart=" in text
 
 
+def _needs(tool):
+    return pytest.mark.skipif(not shutil.which(tool), reason=f"{tool} not installed (apt-get install {tool})")
+
+
+@_needs("haproxy")
 @pytest.mark.parametrize("fam", list(FAMILIES))
 def test_haproxy_config_valid(rendered, fam):
     f = rendered[fam] / "cs_lb__templates__haproxy.cfg"
@@ -153,6 +158,7 @@ def test_haproxy_config_valid(rendered, fam):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+@_needs("keepalived")
 @pytest.mark.parametrize("fam", list(FAMILIES))
 @pytest.mark.parametrize("tpl", ["mysql_ha__templates__keepalived.conf", "pxc__templates__keepalived.conf", "cs_lb__templates__keepalived-base.conf"])
 def test_keepalived_config_valid(rendered, fam, tpl, tmp_path):
@@ -170,6 +176,7 @@ def test_keepalived_config_valid(rendered, fam, tpl, tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr + src
 
 
+@_needs("nginx")
 @pytest.mark.parametrize("fam", list(FAMILIES))
 @pytest.mark.parametrize("ssl", [True, False])
 def test_nginx_site_valid(rendered, fam, ssl, tmp_path):
@@ -180,6 +187,8 @@ def test_nginx_site_valid(rendered, fam, ssl, tmp_path):
     subprocess.run(["openssl", "req", "-x509", "-nodes", "-newkey", "rsa:2048", "-days", "1", "-keyout", str(key), "-out", str(crt), "-subj", "/CN=t"],
                    check=True, capture_output=True)
     site = site.replace("/etc/nginx/autoinfra-tls/server.crt", str(crt)).replace("/etc/nginx/autoinfra-tls/server.key", str(key))
+    if os.geteuid() != 0:   # nginx -t binds the listen ports; non-root cannot bind <1024
+        site = re.sub(r"\blisten\s+(80|443)\b", lambda m: f"listen {18000 + int(m.group(1))}", site)
     conf = tmp_path / "nginx.conf"
     conf.write_text(f"pid {tmp_path}/n.pid; error_log {tmp_path}/e.log; events {{}} http {{ access_log off; {site} }}")
     r = subprocess.run(["nginx", "-t", "-c", str(conf), "-p", str(tmp_path)], capture_output=True, text=True)
@@ -235,6 +244,7 @@ def test_systemd_units_verify(rendered, tmp_path):
             assert "Invalid" not in r.stderr and "unknown" not in r.stderr.lower().replace("unknown lvalue 'startlimit", ""), r.stderr
 
 
+@_needs("keepalived")
 def test_single_lb_node_keepalived_valid(tmp_path):
     """One HAProxy node: no unicast peers may be emitted (keepalived -t rejects an empty unicast_peer block)."""
     inv = tmp_path / "inv.ini"
