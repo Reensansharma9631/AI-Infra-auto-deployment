@@ -178,3 +178,10 @@ def test_setup_registry_gives_the_registry_user_its_storage():
     s = (ROOT / "master/setup-registry.sh").read_text()
     i, j = s.index('mkdir -p "$REG_DIR"'), s.index("cat > /etc/docker/registry/config.yml")
     assert 'chown -R docker-registry:docker-registry "$REG_DIR"' in s[i:j]
+
+
+
+def test_installer_restarts_chrony_after_writing_its_config():
+    """chrony already runs on a fresh Ubuntu: 'enable --now' keeps the old config and the master serves no time."""
+    inst = (ROOT / "master/install-autoinfra.sh").read_text()
+    assert "systemctl restart chrony" in inst and inst.index("local stratum 10") < inst.index("systemctl restart chrony")

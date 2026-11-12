@@ -204,7 +204,10 @@ if [ "${NO_SYSTEMD:-0}" = 1 ]; then
 else
   systemctl daemon-reload
   systemctl enable --now autoinfra nginx
-  systemctl enable --now chrony 2>/dev/null || systemctl enable --now chronyd 2>/dev/null || true
+  # restart, not just --now: chrony usually already runs on a fresh Ubuntu and would keep ignoring the new 'allow' /
+  # 'local stratum' config - the master then never serves time (real lab: nodes 'unsynchronized', Kolla prechecks failed)
+  systemctl enable chrony 2>/dev/null || systemctl enable chronyd 2>/dev/null || true
+  systemctl restart chrony 2>/dev/null || systemctl restart chronyd 2>/dev/null || true
   systemctl restart nginx autoinfra
 fi
 for i in $(seq 1 30); do curl -fsk -o /dev/null "https://127.0.0.1:$UI_PORT/login" && break; sleep 1; done

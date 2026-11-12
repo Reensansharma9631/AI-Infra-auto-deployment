@@ -121,7 +121,8 @@ def test_gen_passwords():
     from autoinfra import openstack
     out = openstack.gen_passwords("---\na_password:\nb_secret:\nnova_ssh_key:\nkeep: 1\n")
     d = yaml.safe_load(out)
-    assert len(d["a_password"]) == 32 and d["a_password"] != d["b_secret"] and d["nova_ssh_key"] is None and d["keep"] == 1
+    assert len(d["a_password"]) == 32 and d["a_password"] != d["b_secret"] and d["keep"] == 1
+    assert d["nova_ssh_key"]["public_key"].startswith("ssh-rsa ")       # Kolla needs the key pairs (real lab prechecks)
 
 
 def test_os_deploy_needs_kolla(operator, oslab, monkeypatch):
@@ -148,7 +149,7 @@ def test_os_full_deploy(app, operator, oslab, monkeypatch):
     multi = (d / "multinode").read_text()
     assert "[baremetal:children]" in multi and multi.index("[control]") < multi.index("[baremetal:children]")
     pw = yaml.safe_load((d / "passwords.yml").read_text())
-    assert len(pw["database_password"]) == 32 and pw["nova_ssh_key"] is None
+    assert len(pw["database_password"]) == 32 and pw["nova_ssh_key"]["private_key"].startswith("-----BEGIN")
     assert oct(os.stat(d / "passwords.yml").st_mode & 0o777) == "0o600"
     first = (d / "passwords.yml").read_text()
     wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
@@ -452,3 +453,32 @@ def test_second_deployment_refused_while_one_runs(app, operator, oslab, monkeypa
     with app.app_context():
         db.ex("UPDATE jobs SET state='failed' WHERE id=?", (jid,))
     assert operator.post("/api/os/deploy", json={}).status_code == 202
+
+
+
+def test_passwords_fallback_fills_ssh_keys_and_every_value():
+    """Kolla prechecks: 'grep ^[^#].*:\\s*$ passwords.yml' must find nothing (real lab: empty *_ssh_key entries)."""
+    import re as _re
+    from autoinfra import openstack
+    tmpl = "database_password:\nnova_ssh_key:\n  private_key:\n  public_key:\nkeystone_admin_password:\n"
+    out = openstack.gen_passwords(tmpl)
+    # Kolla's exact check: grep '^[^#].*:\s*$', drop lines with 'ssh_key', nothing with ':' may remain
+    hits = [l for l in out.splitlines() if _re.match(r"^[^#].*:\s*$", l) and "ssh_key" not in l]
+    assert not hits, hits
+    d = yaml.safe_load(out)
+    assert d["nova_ssh_key"]["private_key"].startswith("-----BEGIN RSA PRIVATE KEY") and d["nova_ssh_key"]["public_key"].startswith("ssh-rsa ")
+    assert len(d["database_password"]) == 32
+
+
+def test_passwords_use_kolla_genpwd_when_installed(app, operator, oslab, monkeypatch, tmp_path):
+    from autoinfra import openstack
+    gp = tmp_path / "kolla-genpwd"
+    gp.write_text("#!/bin/sh\nprintf 'database_password: from-genpwd\\n' > \"$2\"\n")
+    gp.chmod(0o755)
+    monkeypatch.setattr(openstack, "kolla_bin", lambda: str(tmp_path / "kolla-ansible"))
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab)
+    with app.app_context():
+        s = openstack.state()
+        d, _ = openstack.write_config(s)
+    assert open(f"{d}/passwords.yml").read() == "database_password: from-genpwd\n"

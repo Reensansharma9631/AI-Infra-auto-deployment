@@ -209,8 +209,32 @@ def kolla_bin():
             or ("/opt/airgap/venv-kolla/bin/kolla-ansible" if os.path.exists("/opt/airgap/venv-kolla/bin/kolla-ansible") else "kolla-ansible"))
 
 
+def _ssh_keypair():
+    """RSA key pair in the formats kolla-genpwd writes (private PEM, OpenSSH public)."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    k = rsa.generate_private_key(public_exponent=65537, key_size=4096)
+    priv = k.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.TraditionalOpenSSL, serialization.NoEncryption()).decode()
+    pub = k.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode()
+    return priv, pub
+
+
 def gen_passwords(template_text):
-    """Fill every empty key of kolla's passwords.yml (what kolla-genpwd does, without needing it)."""
+    """Fallback when kolla-genpwd is not installed: fill every empty key of kolla's passwords.yml, including the
+    *_ssh_key mappings (private_key/public_key) - Kolla's prechecks reject any empty value."""
+    import yaml
+    data = yaml.safe_load(template_text) or {}
+    alpha = string.ascii_letters + string.digits
+    for k, v in list(data.items()):
+        if k.endswith("_ssh_key") and (v is None or (isinstance(v, dict) and not v.get("private_key"))):
+            priv, pub = _ssh_keypair()
+            data[k] = {"private_key": priv, "public_key": pub}
+        elif v in (None, ""):
+            data[k] = "".join(secrets.choice(alpha) for _ in range(32))
+    return yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+
+
+def _gen_passwords_lines(template_text):
     out = []
     alpha = string.ascii_letters + string.digits
     for line in template_text.splitlines():
@@ -245,7 +269,20 @@ def write_config(s, ifaces=None):
             "horizon_secret_key", "horizon_database_password", "keepalived_password", "memcache_secret_key", "metadata_secret"))
         fd = os.open(pw, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as fh:
-            fh.write(gen_passwords(text))
+            fh.write(text)
+        genpwd = os.path.join(os.path.dirname(kolla_bin()), "kolla-genpwd")
+        if os.path.isabs(genpwd) and os.access(genpwd, os.X_OK):
+            # the official generator also creates the SSH key pairs (nova/kolla/keystone ..._ssh_key) and the special
+            # formats Kolla needs - real lab: Kolla prechecks refused AutoInfra's file with empty *_ssh_key entries
+            import subprocess
+            r = subprocess.run([genpwd, "-p", pw], capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                os.unlink(pw)
+                raise RuntimeError(f"kolla-genpwd failed: {(r.stderr or r.stdout)[-300:]}")
+        else:
+            fh2 = os.open(pw, os.O_WRONLY | os.O_TRUNC)
+            with os.fdopen(fh2, "w") as fh:
+                fh.write(gen_passwords(text))
     if s["network"]["storage_backend"] == "nfs" and s["services"].get("cinder"):
         os.makedirs(os.path.join(d, "config", "cinder"), exist_ok=True)
         open(os.path.join(d, "config", "nfs_shares"), "w").write("\n".join(x.strip() for x in s["network"]["nfs_shares"].split(",")) + "\n")
