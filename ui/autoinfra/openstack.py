@@ -190,7 +190,9 @@ def render_multinode(s, share_template=None, ifaces=None):
     net_ids = n.get("network_ids") or n["controller_ids"]
     head = (f"[control]\n{block(n['controller_ids'])}\n\n[network]\n{block(net_ids)}\n\n[compute]\n{block(n['compute_ids'])}\n\n"
             f"[monitoring]\n{block(n['controller_ids'][:1])}\n\n[storage]\n{block(n.get('storage_ids') or [])}\n\n"
-            "[deployment]\nlocalhost ansible_connection=local\n\n")
+            # the master runs kolla-ansible as the unprivileged service user (NoNewPrivileges): no sudo there - Kolla's localhost
+            # tasks only touch the config dir, which AutoInfra owns (real lab: 'Check if ansible user can do passwordless sudo')
+            "[deployment]\nlocalhost ansible_connection=local ansible_become=false\n\n")
     if share_template and "[baremetal:children]" in share_template:
         return head + share_template[share_template.index("[baremetal:children]"):]
     return head

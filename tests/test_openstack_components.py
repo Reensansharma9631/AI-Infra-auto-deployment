@@ -482,3 +482,10 @@ def test_passwords_use_kolla_genpwd_when_installed(app, operator, oslab, monkeyp
         s = openstack.state()
         d, _ = openstack.write_config(s)
     assert open(f"{d}/passwords.yml").read() == "database_password: from-genpwd\n"
+
+
+
+def test_localhost_never_escalates(operator, oslab):
+    os_fill(operator, oslab)
+    m = operator.get("/api/os/preview").get_json()["multinode"]
+    assert "[deployment]\nlocalhost ansible_connection=local ansible_become=false" in m
