@@ -76,8 +76,8 @@ window.page_cswizard = async function () {
       <h2 class="mt">Deployment Preview</h2>${stepsList(W.plan.map((p) => ({ name: p.label, state: "pending" })).concat([{ name: "Configure zones, pods, clusters and storage", state: "pending" }]))}`;
     $("#rv-errors").innerHTML = "";
   }
-  $("#rv-deploy").addEventListener("click", async () => {
-    const body = { admin_password: $("#rv-admin").value || undefined, kvm_password: $("#rv-kvm").value || undefined, force: $("#rv-force").checked };
+  const startDeploy = async (resume) => {
+    const body = { admin_password: $("#rv-admin").value || undefined, kvm_password: $("#rv-kvm").value || undefined, force: $("#rv-force").checked, resume };
     try {
       const r = await POST("/api/cs/wizard/deploy", body); $("#rv-job").hidden = false; $("#rv-jt").textContent = `job #${r.job_id}`;
       watchJob(r.job_id, $("#rv-log"), (j) => toast(`CloudStack deployment ${j.state}`, j.state === "success" ? "ok" : "bad"),
@@ -85,7 +85,9 @@ window.page_cswizard = async function () {
     } catch (e) {
       const st = e.data?.steps; $("#rv-errors").innerHTML = st ? `<div class="note">${Object.entries(st).map(([k, v]) => `<b>${esc(k)}</b>: ${esc(Object.values(v).join("; "))}`).join("<br>")}</div>` : `<div class="note">${esc(e.message)}</div>`;
     }
-  });
+  };
+  $("#rv-deploy").addEventListener("click", () => startDeploy(false));
+  $("#rv-resume").addEventListener("click", () => startDeploy(true));
   await wz.start();
 };
 

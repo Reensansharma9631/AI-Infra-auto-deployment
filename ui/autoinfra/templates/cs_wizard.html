@@ -75,6 +75,7 @@
         <div class="row mt" id="rv-secrets"><div class="f"><label>CloudStack admin password (default after install: password)</label><input type="password" id="rv-admin" placeholder="password" autocomplete="new-password"></div>
           <div class="f" id="rv-kvm-f" hidden><label>KVM root password (used once by addHost)</label><input type="password" id="rv-kvm" autocomplete="new-password"></div></div>
         <div class="flex"><button class="btn lg" id="rv-deploy" data-need="operator">{{ ic('play') }} Start CloudStack Deployment</button>
+          <button class="btn g" id="rv-resume" data-need="operator" title="Same plan, starting at the step that failed last time">Resume failed deployment</button>
           <label class="chk"><input type="checkbox" id="rv-force"> Deploy even if checks/packages are missing (lab only)</label></div>
         <div id="rv-job" hidden class="mt"><h2>Deployment progress <span class="muted" id="rv-jt"></span></h2><div class="grid g2"><div id="rv-steps"></div><div><div class="bar"><i id="rv-bar" style="width:0"></i></div></div></div><div class="term mt" id="rv-log"></div></div>
       </div>

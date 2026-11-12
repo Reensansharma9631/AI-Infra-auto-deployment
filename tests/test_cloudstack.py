@@ -553,3 +553,39 @@ def test_without_internal_net_no_extra_vars(app, operator, lab):
     with app.app_context():
         v = cloudstack.extra_vars(cloudstack.state())
     assert "kvm_internal_net" not in v and "autoinfra_static_routes" not in v and v["kvm_bridge_name"] == "cloudbr0"
+
+
+# ---------------------------------------------------------------- resume a failed deployment
+def test_resume_runs_only_the_failed_step_onward(app, operator, lab, cs_mock):
+    fill(operator, lab, **_single(lab))
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "wrong"})   # zone step fails: login refused
+    j1 = wait_job(operator, r.get_json()["job_id"], 120)
+    assert j1["state"] == "failed" and j1["steps"][-1]["state"] == "failed" and all(s["state"] == "ok" for s in j1["steps"][:-1])
+    n_playbooks = len(ansible_calls(app))
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password", "resume": True})
+    assert r.status_code == 202, r.get_json()
+    j2 = wait_job(operator, r.get_json()["job_id"], 120)
+    log = operator.get(f"/api/jobs/{j2['id']}/log.txt").data.decode()
+    assert j2["state"] == "success", log
+    assert len(j2["steps"]) == 1 and "resumed at step" in j2["title"] and len(ansible_calls(app)) == n_playbooks
+    assert [z["name"] for z in cs_mock.zones.values()] == ["Zone-1"]
+    # nothing left to resume
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "resume": True})
+    assert r.status_code == 409 and "did not fail" in r.get_json()["error"]
+
+
+def test_resume_refused_when_the_plan_changed(app, operator, lab, cs_mock):
+    fill(operator, lab, **_single(lab))
+    from autoinfra import db
+    with app.app_context():
+        db.set_setting("cs_api_url", cs_mock.url)
+        db.set_setting("cs_poll_interval", 0.01)
+    j1 = wait_job(operator, operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "wrong"}).get_json()["job_id"], 120)
+    assert j1["state"] == "failed"
+    assert operator.post("/api/cs/wizard/management", json={"usage": False}).status_code == 200    # removes a playbook
+    r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password", "resume": True})
+    assert r.status_code == 409 and "wizard changed" in r.get_json()["error"]

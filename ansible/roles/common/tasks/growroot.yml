@@ -20,9 +20,9 @@
     out=$(growpart "/dev/$pk" "$num" 2>&1) && rc=0 || rc=$?
     if [ $rc -eq 1 ] && echo "$out" | grep -q NOCHANGE; then echo "UNCHANGED"; exit 0; fi
     [ $rc -eq 0 ] || { echo "$out" >&2; exit $rc; }
-    if [ -n "$lvm" ]; then pvresize "$part"; lvextend -r -l +100%FREE "$lvm"
-    elif [ "$fs" = xfs ]; then xfs_growfs "$mnt"
-    else resize2fs "$src"; fi
+    if [ -n "$lvm" ]; then pvresize "$part"; lvextend -q -r -l +100%FREE "$lvm" >/dev/null
+    elif [ "$fs" = xfs ]; then xfs_growfs "$mnt" >/dev/null
+    else resize2fs "$src" >/dev/null 2>&1; fi
     echo "GROWN: $(df -h "$mnt" | tail -1)"
   register: gr_out
   changed_when: "'GROWN' in gr_out.stdout"

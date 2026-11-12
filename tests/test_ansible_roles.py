@@ -149,8 +149,20 @@ def test_template_renders(rendered, fam, tpl):
         assert "[Service]" in text and "ExecStart=" in text
 
 
+def _real_iface():
+    """keepalived -t refuses interfaces that do not exist on the machine running the test: use a real one there."""
+    names = sorted(n for n in os.listdir("/sys/class/net") if n != "lo")
+    return names[0] if names else "lo"
+
+
 def _needs(tool):
     return pytest.mark.skipif(not shutil.which(tool), reason=f"{tool} not installed (apt-get install {tool})")
+
+
+def _needs_keepalived(fn):
+    """keepalived -t run as non-root disables every track script as 'insecure' and fails - the check is only real as root."""
+    fn = pytest.mark.skipif(os.geteuid() != 0, reason="keepalived -t must run as root (script security); run: sudo bash tests/run-all.sh")(fn)
+    return _needs("keepalived")(fn)
 
 
 @_needs("haproxy")
@@ -161,7 +173,7 @@ def test_haproxy_config_valid(rendered, fam):
     assert r.returncode == 0, r.stdout + r.stderr
 
 
-@_needs("keepalived")
+@_needs_keepalived
 @pytest.mark.parametrize("fam", list(FAMILIES))
 @pytest.mark.parametrize("tpl", ["mysql_ha__templates__keepalived.conf", "pxc__templates__keepalived.conf", "cs_lb__templates__keepalived-base.conf"])
 def test_keepalived_config_valid(rendered, fam, tpl, tmp_path):
@@ -169,12 +181,12 @@ def test_keepalived_config_valid(rendered, fam, tpl, tmp_path):
     if tpl.startswith("cs_lb"):
         vip = (rendered[fam] / "cs_lb__templates__mgmt-vip.conf").read_text()
         (tmp_path / "conf.d").mkdir()
-        (tmp_path / "conf.d" / "mgmt-vip.conf").write_text(vip)
+        (tmp_path / "conf.d" / "mgmt-vip.conf").write_text(re.sub(r"\beth0\b", _real_iface(), vip))
         src = re.sub(r"include\s+\S+", f"include {tmp_path}/conf.d/*.conf", src)
     # health-check scripts live on the target nodes; keepalived -t insists they exist here
     src = re.sub(r'^(\s*)script\s+.*$', r'\1script "/bin/true"', src, flags=re.M)
     cfg = tmp_path / "k.conf"
-    cfg.write_text(src)
+    cfg.write_text(re.sub(r"\beth0\b", _real_iface(), src))
     r = subprocess.run(["keepalived", "-t", "-f", str(cfg)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr + src
 
@@ -247,7 +259,7 @@ def test_systemd_units_verify(rendered, tmp_path):
             assert "Invalid" not in r.stderr and "unknown" not in r.stderr.lower().replace("unknown lvalue 'startlimit", ""), r.stderr
 
 
-@_needs("keepalived")
+@_needs_keepalived
 def test_single_lb_node_keepalived_valid(tmp_path):
     """One HAProxy node: no unicast peers may be emitted (keepalived -t rejects an empty unicast_peer block)."""
     inv = tmp_path / "inv.ini"
@@ -263,7 +275,7 @@ def test_single_lb_node_keepalived_valid(tmp_path):
     vip = (tmp_path / "vip.conf").read_text()
     assert "unicast_peer" not in vip
     conf = tmp_path / "k.conf"
-    conf.write_text("global_defs {\n enable_script_security\n script_user root\n}\n" + re.sub(r'^(\s*)script\s+.*$', r'\1script "/bin/true"', vip, flags=re.M))
+    conf.write_text("global_defs {\n enable_script_security\n script_user root\n}\n" + re.sub(r'^(\s*)script\s+.*$', r'\1script "/bin/true"', re.sub(r"\beth0\b", _real_iface(), vip), flags=re.M))
     r = subprocess.run(["keepalived", "-t", "-f", str(conf)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
 

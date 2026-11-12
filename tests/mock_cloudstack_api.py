@@ -56,8 +56,9 @@ def make_server(S, port=0):
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a): pass
 
-        def out(self, key, body):
+        def out(self, key, body, cookies=()):
             b = json.dumps({key: body}).encode(); self.send_response(200); self.send_header("Content-Type", "application/json")
+            for c in cookies: self.send_header("Set-Cookie", c)
             self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
         def err(self, cmd, text, code=431): self.out(cmd + "response", {"errorcode": code, "cserrorcode": 9999, "errortext": text})
@@ -75,10 +76,16 @@ def make_server(S, port=0):
             if cmd == "login":
                 if q.get("password") != "password": return self.err(cmd, "Unable to find account by name admin", 531)
                 sk = uuid.uuid4().hex; S.sessions[sk] = uid
-                return self.out("loginresponse", {"sessionkey": sk, "userid": uid, "username": "admin", "timeout": 1800})
+                # like real CloudStack: the login also sets the JSESSIONID + sessionkey cookies
+                return self.out("loginresponse", {"sessionkey": sk, "userid": uid, "username": "admin", "timeout": 1800},
+                                cookies=(f"JSESSIONID={uuid.uuid4().hex}; Path=/client", f"sessionkey={sk}; Path=/client"))
             if cmd == "registeruserkeys":
                 if S.sessions.get(q.get("sessionkey")) != uid: return self.err(cmd, "unauthorized", 401)
                 return self.out(key, {"userkeys": {"apikey": S.api_key, "secretkey": S.secret}})
+            # real CloudStack (verified on 4.22.1.1): a request that carries the session cookie but no sessionkey parameter
+            # is rejected even when its API-key signature is valid
+            if "JSESSIONID=" in (self.headers.get("Cookie") or "") and "sessionkey" not in q:
+                S.bad_signatures += 1; return self.err(cmd, "unable to verify user credentials", 401)
             sig = q.pop("signature", "")
             canon = "&".join(f"{k.lower()}={urllib.parse.quote(v, safe='')}" for k, v in sorted(q.items(), key=lambda kv: kv[0].lower())).lower()
             good = base64.b64encode(hmac.new(S.secret.encode(), canon.encode(), hashlib.sha1).digest()).decode()

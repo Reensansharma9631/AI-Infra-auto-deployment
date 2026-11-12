@@ -15,7 +15,8 @@ class CS:
         self.api_key, self.secret, self.session = api_key, secret, None
         self.timeout, self.poll_interval, self.poll_max = timeout, poll_interval, poll_max
         # the login session is the sessionkey PLUS the JSESSIONID cookie; no proxy for a LAN address
-        self._op = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self._jar = http.cookiejar.CookieJar()
+        self._op = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(self._jar))
 
     def _sign(self, p):
         q = "&".join(f"{k.lower()}={urllib.parse.quote(str(v), safe='')}" for k, v in sorted(p.items(), key=lambda kv: kv[0].lower())).lower()
@@ -73,6 +74,9 @@ class CS:
         self.session = r["sessionkey"]
         keys = self.run("registerUserKeys", id=r["userid"])["userkeys"]
         self.api_key, self.secret, self.session = keys["apikey"], keys["secretkey"], None
+        # from now on: signed requests only. CloudStack rejects a signed request that still carries the login's
+        # JSESSIONID/sessionkey cookies ("unable to verify user credentials", HTTP 401 - seen on 4.22.1.1)
+        self._jar.clear()
         return self.api_key, self.secret
 
     def run(self, command, **params):

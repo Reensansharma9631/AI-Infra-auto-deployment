@@ -459,10 +459,32 @@ def deploy():
         steps.append(restart)
     steps.append({"name": "Configure zones, pods, clusters, hosts and storage (CloudStack API)", "fn": "cs_zone_bootstrap",
                   "args": {"spec": zone_spec(s, kvm_pw), "admin_password": j.get("admin_password")}})
-    jid = jobs.start("deploy-cloudstack", f"Deploy Apache CloudStack {s['requirements']['version']}", steps,
-                     meta={"workdir": wd, "plan": [p for p, _ in plan(s)]}, secrets=[kvm_pw, j.get("admin_password")])
+    title, meta = f"Deploy Apache CloudStack {s['requirements']['version']}", {"workdir": wd, "plan": [p for p, _ in plan(s)]}
+    if j.get("resume"):
+        start_at, prev, err = resume_point([x["name"] for x in steps])
+        if err:
+            return jsonify(error=err), 409
+        steps = steps[start_at:]
+        title += f" (resumed at step {start_at + 1} of job #{prev})"
+        meta.update(resumed_from=prev, start_at=start_at)
+    jid = jobs.start("deploy-cloudstack", title, steps, meta=meta, secrets=[kvm_pw, j.get("admin_password")])
     auth.audit("cs.deploy", s["requirements"]["version"], f"job {jid}")
     return jsonify(job_id=jid), 202
+
+
+def resume_point(names):
+    """(index of the first step to run, previous job id, error). Every playbook and the zone bootstrap are idempotent, so
+    resuming means: skip the steps the last failed deployment finished, provided the plan is still the same."""
+    prev = db.one("SELECT id, state, steps FROM jobs WHERE kind='deploy-cloudstack' ORDER BY id DESC LIMIT 1")
+    if not prev or prev["state"] != "failed":
+        return 0, None, "nothing to resume: the last CloudStack deployment did not fail - use Start CloudStack Deployment"
+    st = json.loads(prev["steps"] or "[]")
+    bad = next((i for i, x in enumerate(st) if x["state"] == "failed"), None)
+    if bad is None:
+        return 0, None, f"job #{prev['id']} has no failed step to resume from"
+    if [x["name"] for x in st] != names:
+        return 0, None, f"the wizard changed since job #{prev['id']} - its steps differ; start a new deployment"
+    return bad, prev["id"], None
 
 
 # ------------------------------------------------------------------ infrastructure API (live CloudStack)
