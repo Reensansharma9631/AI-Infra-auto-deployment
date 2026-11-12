@@ -321,7 +321,7 @@ def internal_net_vars(s, hosts):
                                  # the agent certificate against the client IP ("Certificate ownership verification failed")
                                  "nat_exempt": sorted({h["ip"] for hid, h in hosts.items() if hid in _wizard_host_ids(s) and h["ip"] != kvm_ip}),
                                  # first KVM host = gateway; the others join the bridge over VXLAN
-                                 "gateway": kvm_ip, "peers": peers,
+                                 "gateway": kvm_ip, "peers": peers, "lan_dev": INTERNAL_HOST_BRIDGE,
                                  # the agent needs an address on its private bridge: members get one from the top of the pod subnet
                                  "host_addresses": {ip: f"{a}/{pn.prefixlen}" for ip, a in zip(peers[1:], internal_member_ips(pn, len(peers) - 1))},
                                  # explicit, per-host MAC: cloned VMs share /etc/machine-id, so systemd gives every bridge the same MAC

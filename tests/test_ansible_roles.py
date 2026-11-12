@@ -620,7 +620,8 @@ def test_internal_net_unit(rendered, fam):
     ex = _unit_exec(t)
     assert any("ip link add dummyai0 type dummy" in c for c in ex) and any("ip link add cloudbr1 type bridge" in c for c in ex)
     assert "/usr/sbin/ip addr replace 10.200.0.1/24 dev cloudbr1" in ex and "/usr/sbin/ip addr replace 10.201.0.1/24 dev cloudbr1" in ex
-    assert sum("-s 10.20" in c and "! -o cloudbr1 -j MASQUERADE" in c for c in ex) == 2
+    assert sum("-s 10.20" in c and "-o cloudbr0 -m physdev ! --physdev-is-bridged -j MASQUERADE" in c for c in ex) == 2
+    assert "! -o cloudbr1 -j MASQUERADE" not in "\n".join(ex)
     ret = [i for i, c in enumerate(ex) if "-j RETURN" in c]
     assert len(ret) == 4          # inserted with -I: at runtime they precede MASQUERADE (checked for real in the netns test)
     assert any("-s 10.200.0.0/24 -d 10.0.0.41 -j RETURN" in c and "-I POSTROUTING" in c for c in ex)
@@ -732,7 +733,7 @@ def _render_internal(host, peers, gw):
     env.filters["default"] = lambda v, d="", b=False: d if (v is None or isinstance(v, jinja2.Undefined) or (b and not v)) else v
     tpl = env.from_string((ANS / "roles/kvm_host/templates/autoinfra-internal-net.service.j2").read_text())
     net = {"bridge": "cloudbr1", "addresses": ["10.200.0.1/24"], "nat_cidrs": ["10.200.0.0/24"], "nat_exempt": [p for p in peers if p != gw],
-           "gateway": gw, "peers": peers, "host_addresses": {p: "10.200.0.254/24" for p in peers if p != gw},
+           "gateway": gw, "peers": peers, "lan_dev": "ai-v" + ("a" if host == gw else "b"), "host_addresses": {p: "10.200.0.254/24" for p in peers if p != gw},
            "macs": {p: "02:a1:00:00:00:%02x" % i for i, p in enumerate(peers, 1)}}
     return tpl.render(kvm_internal_net=net, ansible_host=host)
 
@@ -747,6 +748,8 @@ def test_internal_net_multi_host_render():
     assert "ip addr replace 10.200.0.1/24" not in m and "MASQUERADE" not in m   # only the gateway owns the gateway address + NAT
     assert "ip addr replace 10.200.0.254/24 dev cloudbr1" in m and "10.200.0.254" not in g   # member: its own agent address
     assert "cloudbr1 address 02:a1:00:00:00:01" in g and "cloudbr1 address 02:a1:00:00:00:02" in m
+    assert "vxai0 address 02:a2:00:00:00:01" in g and "vxai0 address 02:a2:00:00:00:02" in m
+    assert "-o ai-va -m physdev ! --physdev-is-bridged -j MASQUERADE" in g      # NAT only routed traffic out of the LAN device
     assert re.match(r"^vx", "vxai0") and len("vxai0.4094") <= 15        # agent pattern ^vx, IFNAMSIZ
 
 

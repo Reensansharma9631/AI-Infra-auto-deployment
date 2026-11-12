@@ -2,6 +2,7 @@
 {% set peers = kvm_internal_net.peers | default([]) %}
 {% set gw = kvm_internal_net.gateway | default(ansible_host) %}
 {% set member = 'vxai0' if peers | length > 1 else 'dummyai0' %}
+{% set lan = kvm_internal_net.lan_dev | default(kvm_bridge_name | default('cloudbr0')) %}
 # Member device: one KVM host -> a dummy NIC; several -> a unicast VXLAN (UDP 4789) to the other KVM hosts, so system VMs,
 # routers and guests on every host share the networks. CloudStack builds guest VLANs on the member (<member>.<vlan>), and
 # its name must match the KVM agent's interface patterns (^dummy, ^vx, ^eth ...; 4.22) or the bridge is not reported.
@@ -27,6 +28,10 @@ ExecStart=/bin/sh -c 'ip link show dummyai0 >/dev/null 2>&1 || ip link add dummy
 # no 'dev': the MTU may stay 1500 (outer packets are fragmented by the host instead of guests seeing a smaller MTU)
 ExecStart=/bin/sh -c 'ip link show vxai0 >/dev/null 2>&1 || ip link add vxai0 type vxlan id {{ kvm_internal_net.vni | default(4242) }} local {{ ansible_host }} dstport 4789 nolearning'
 ExecStart=/usr/sbin/ip link set vxai0 mtu 1500
+{% if (kvm_internal_net.macs | default({})).get(ansible_host) %}
+# cloned VMs share /etc/machine-id -> systemd would give vxai0 the same MAC on every host
+ExecStart=/usr/sbin/ip link set vxai0 address {{ kvm_internal_net.macs[ansible_host] | replace('02:a1:', '02:a2:') }}
+{% endif %}
 {% for p in peers if p != ansible_host %}
 ExecStart=/bin/sh -c 'bridge fdb show dev vxai0 | grep -q "dst {{ p }} " || bridge fdb append 00:00:00:00:00:00 dev vxai0 dst {{ p }}'
 {% endfor %}
@@ -51,8 +56,11 @@ ExecStart=/usr/sbin/ip addr replace {{ a }} dev {{ kvm_internal_net.bridge }}
 # {{ d }} has a route back: no NAT (CloudStack verifies the system VM certificate against the client address)
 ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} -d {{ d }} -j RETURN 2>/dev/null || iptables -t nat -I POSTROUTING -s {{ c }} -d {{ d }} -j RETURN'
 {% endfor %}
-# hosts without a route back (the master, the LAN gateway) see this KVM host's IP
-ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE'
+# hosts without a route back (the master, the LAN gateway) see this KVM host's IP. Only ROUTED traffic leaving through the LAN
+# bridge: with br_netfilter (enabled by the CloudStack agent) bridged guest-VLAN frames pass iptables too, and NATing them
+# broke port forwards to VMs on this host (real lab). Older versions used '! -o <internal bridge>' - removed here.
+ExecStartPre=-/bin/sh -c 'while iptables -t nat -D POSTROUTING -s {{ c }} ! -o {{ kvm_internal_net.bridge }} -j MASQUERADE 2>/dev/null; do :; done'
+ExecStart=/bin/sh -c 'iptables -t nat -C POSTROUTING -s {{ c }} -o {{ lan }} -m physdev ! --physdev-is-bridged -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ c }} -o {{ lan }} -m physdev ! --physdev-is-bridged -j MASQUERADE'
 {% endfor %}
 {% endif %}
 
