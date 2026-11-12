@@ -28,6 +28,29 @@
       {% endfor %}
   tags: hosts
 
+- name: Resolver drop-in directory
+  ansible.builtin.file: {path: "{{ '/etc/systemd/resolved.conf.d' if ansible_facts['os_family'] == 'Debian' else '/etc/NetworkManager/conf.d' }}", state: directory, mode: "0755"}
+  when: autoinfra_node_dns | bool and master_ip is defined
+  tags: dns
+
+- name: "Resolver -> the master's DNS (Ubuntu - systemd-resolved drop-in)"
+  ansible.builtin.copy:
+    dest: /etc/systemd/resolved.conf.d/autoinfra.conf
+    content: "# managed by AutoInfra - the master serves DNS for the estate\n[Resolve]\nDNS={{ master_ip }}\nDomains=~.\n"
+    mode: "0644"
+  when: autoinfra_node_dns | bool and master_ip is defined and ansible_facts['os_family'] == 'Debian'
+  notify: restart systemd-resolved
+  tags: dns
+
+- name: "Resolver -> the master's DNS (RHEL family - NetworkManager global DNS)"
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/90-autoinfra-dns.conf
+    content: "# managed by AutoInfra - the master serves DNS for the estate\n[global-dns-domain-*]\nservers={{ master_ip }}\n"
+    mode: "0644"
+  when: autoinfra_node_dns | bool and master_ip is defined and ansible_facts['os_family'] == 'RedHat'
+  notify: reload NetworkManager
+  tags: dns
+
 - name: Base packages
   ansible.builtin.package:
     name: "{{ (common_os_pkgs | default(os_pkgs)) + common_packages }}"   # common_os_pkgs: replace the base list per host

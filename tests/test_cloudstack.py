@@ -585,18 +585,21 @@ def test_resume_runs_only_the_failed_step_onward(app, operator, lab, cs_mock):
         db.set_setting("cs_poll_interval", 0.01)
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "wrong"})   # zone step fails: login refused
     j1 = wait_job(operator, r.get_json()["job_id"], 120)
-    assert j1["state"] == "failed" and j1["steps"][-1]["state"] == "failed" and all(s["state"] == "ok" for s in j1["steps"][:-1])
+    bad = next(i for i, st in enumerate(j1["steps"]) if st["state"] == "failed")
+    assert j1["state"] == "failed" and j1["steps"][bad]["name"].startswith("Configure zones")
+    assert all(s["state"] == "ok" for s in j1["steps"][:bad]) and all(s["state"] == "skipped" for s in j1["steps"][bad + 1:])
+    remaining = len(j1["steps"]) - bad
     n_playbooks = len(ansible_calls(app))
     # a resume that fails again can itself be resumed (offsets add up)
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "still-wrong", "resume": True})
     jr = wait_job(operator, r.get_json()["job_id"], 120)
-    assert jr["state"] == "failed" and len(jr["steps"]) == 1
+    assert jr["state"] == "failed" and len(jr["steps"]) == remaining
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "admin_password": "password", "resume": True})
     assert r.status_code == 202, r.get_json()
     j2 = wait_job(operator, r.get_json()["job_id"], 120)
     log = operator.get(f"/api/jobs/{j2['id']}/log.txt").data.decode()
     assert j2["state"] == "success", log
-    assert len(j2["steps"]) == 1 and "resumed at step" in j2["title"] and len(ansible_calls(app)) == n_playbooks
+    assert len(j2["steps"]) == remaining and "resumed at step" in j2["title"] and len(ansible_calls(app)) == n_playbooks
     assert [z["name"] for z in cs_mock.zones.values()] == ["Zone-1"]
     # nothing left to resume
     r = operator.post("/api/cs/wizard/deploy", json={"force": True, "resume": True})

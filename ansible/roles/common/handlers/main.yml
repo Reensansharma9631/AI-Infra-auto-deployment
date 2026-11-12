@@ -2,3 +2,11 @@
 - name: restart chrony
   ansible.builtin.service: {name: "{{ chrony_service }}", state: restarted}
   when: autoinfra_services | default(true) | bool
+
+- name: restart systemd-resolved
+  ansible.builtin.service: {name: systemd-resolved, state: restarted}
+  when: autoinfra_services | default(true) | bool
+
+- name: reload NetworkManager
+  ansible.builtin.service: {name: NetworkManager, state: reloaded}
+  when: autoinfra_services | default(true) | bool

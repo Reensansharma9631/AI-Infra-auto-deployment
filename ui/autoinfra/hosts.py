@@ -374,6 +374,7 @@ def create_host():
     if hid is None:
         return jsonify(error="validation failed", fields=msg), 400
     auth.audit("host.add", j.get("ip"), msg)
+    inventory.master_net("dns-update")
     return jsonify(id=hid, message=msg), 201
 
 
@@ -401,6 +402,8 @@ def import_hosts():
         else:
             added.append({"line": n, "id": hid, "message": msg})
     auth.audit("host.import", f"{len(added)} added", f"{len(errors)} errors")
+    if added:
+        inventory.master_net("dns-update")
     return jsonify(added=added, errors=errors)
 
 
@@ -428,6 +431,8 @@ def update_host(hid):
     for k, v in allowed.items():
         db.ex(f"UPDATE hosts SET {k}=? WHERE id=?", (v, hid))
     auth.audit("host.update", hid, json.dumps(allowed))
+    if "hostname" in allowed:
+        inventory.master_net("dns-update")
     return jsonify(ok=True)
 
 
@@ -441,6 +446,7 @@ def delete_host(hid):
     db.ex("DELETE FROM metrics WHERE host_id=?", (hid,))
     db.ex("DELETE FROM hosts WHERE id=?", (hid,))
     auth.audit("host.delete", h["ip"])
+    inventory.master_net("dns-update")
     return jsonify(ok=True)
 
 

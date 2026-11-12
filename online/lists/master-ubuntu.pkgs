@@ -16,3 +16,4 @@ sshpass
 dpkg-dev
 libglib2.0-0t64
 nfs-kernel-server
+dnsmasq

@@ -15,6 +15,33 @@ ROLE_LABELS = {"management": "Management", "database": "Database", "compute": "C
 _slock = threading.Lock()
 
 
+def master_net_helper():
+    """Root helper the service user may run via sudoers (installed by install-autoinfra.sh); None when not installed."""
+    p = os.environ.get("AUTOINFRA_MASTER_NET")
+    if p is None:
+        p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "master", "autoinfra-master-net"))
+        if not (os.path.exists(p) and os.path.exists("/etc/sudoers.d/autoinfra")):
+            return None
+    return p or None
+
+
+def master_net(*args, log=None):
+    """Run the helper (sudo -n). Returns (ok, output); never raises - DNS records/routes on the master are a convenience."""
+    import subprocess
+    p = master_net_helper()
+    if not p:
+        return False, "master network helper not installed (install-autoinfra.sh sets it up)"
+    try:
+        cmd = ([] if os.geteuid() == 0 or os.environ.get("AUTOINFRA_MASTER_NET") else ["sudo", "-n"]) + [p, *args]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        out = (r.stdout + r.stderr).strip()
+        if log:
+            log(f"[master] {' '.join(args)}: {out[-300:]}")
+        return r.returncode == 0, out
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+
+
 def ansible_dir():
     d = os.environ.get("AUTOINFRA_ANSIBLE_DIR")
     if d:

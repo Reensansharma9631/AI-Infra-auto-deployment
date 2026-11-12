@@ -36,6 +36,10 @@ def state():
     for k, v in s.items():
         if k in out and isinstance(v, dict):
             out[k].update(v)
+    # the master serves DNS for the estate (dnsmasq): zone DNS defaults to it, so system VMs and guests resolve offline
+    for k in ("dns1", "internal_dns1"):
+        if not out["zone"].get(k):
+            out["zone"][k] = inventory.master_ip()
     return out
 
 
@@ -448,6 +452,16 @@ def cs_api_prepare(log, vip, url=None, admin_user="admin", admin_password=None):
     return True
 
 
+@jobs.register("cs_master_routes")
+def cs_master_routes(log, gateway, cidrs):
+    """Routes from the master to the internal pod/public subnets (console proxy, public IPs, smoke test from the master).
+    Needs the root helper from install-autoinfra.sh; without it the deployment still succeeds - with a warning."""
+    ok, out = inventory.master_net("routes", gateway, *cidrs, log=log)
+    if not ok:
+        log(f"WARNING: master routes not set ({out[-200:]}). Add them by hand: " + "; ".join(f"ip route replace {c} via {gateway}" for c in cidrs))
+    return True
+
+
 @jobs.register("cs_zone_bootstrap")
 def cs_zone_bootstrap(log, spec, url=None, admin_user="admin", admin_password=None):
     url = url or db.get_setting("cs_api_url") or f"http://{spec['management_vip'].split(',')[0]}:8080"
@@ -552,6 +566,10 @@ def deploy():
         steps.append(restart)
     steps.append({"name": "Configure zones, pods, clusters, hosts and storage (CloudStack API)", "fn": "cs_zone_bootstrap",
                   "args": {"spec": zone_spec(s, kvm_pw), "admin_password": j.get("admin_password")}})
+    ev = extra_vars(s)
+    if ev.get("kvm_internal_net"):
+        steps.append({"name": "Routes from the master to the internal pod/public networks", "fn": "cs_master_routes",
+                      "args": {"gateway": ev["kvm_internal_net"]["gateway"], "cidrs": [r["to"] for r in ev["autoinfra_static_routes"]]}})
     title, meta = f"Deploy Apache CloudStack {s['requirements']['version']}", {"workdir": wd, "plan": [p for p, _ in plan(s)]}
     if j.get("resume"):
         start_at, prev, err = resume_point([x["name"] for x in steps])

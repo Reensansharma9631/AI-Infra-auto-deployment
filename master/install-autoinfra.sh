@@ -3,6 +3,8 @@
 #   unzip autoinfra-master-YYYYMMDD.zip -d /opt          -> /opt/autoinfra
 #   sudo bash /opt/autoinfra/master/install-autoinfra.sh
 # Options (environment): MASTER_IP=10.0.0.5  ADMIN_PASSWORD=...  UI_PORT=443  REPO_PORT=8081  NTP_ALLOW=10.0.0.0/16
+#   DNS=1 (default) the master serves DNS for the estate (dnsmasq on MASTER_IP): inventory hostnames + DNS_DOMAIN=autoinfra.local;
+#   UPSTREAM_DNS="10.0.0.2 10.0.0.3" forwards other names to the site's DNS (empty = answer 'refused' - true air gap)
 #   NFS_EXPORTS="/export/primary2 /export/secondary2" NFS_CLIENTS="10.0.0.0/24"  the master also serves NFS (master/setup-nfs.sh;
 #   needs the cloudstack package zip uploaded first - re-run the installer afterwards)
 #                        NO_SYSTEMD=1 (containers/chroots: start gunicorn + nginx directly)  SKIP_OS_PACKAGES=1
@@ -137,10 +139,26 @@ CHRONY_DIR=/etc/chrony/conf.d; [ -d "$CHRONY_DIR" ] || CHRONY_DIR=/etc/chrony.d;
 printf 'local stratum 10\nallow %s\n' "${NTP_ALLOW:-all}" | sed 's/allow all/allow/' > "$CHRONY_DIR/autoinfra.conf"
 grep -q "$CHRONY_DIR" /etc/chrony.conf 2>/dev/null || { [ -f /etc/chrony.conf ] && echo "confdir $CHRONY_DIR" >> /etc/chrony.conf; } || true
 
+# 7b) DNS for the estate: dnsmasq on MASTER_IP (systemd-resolved keeps 127.0.0.53), records from the host inventory
+if [ "${DNS:-1}" = 1 ] && command -v dnsmasq >/dev/null; then
+  mkdir -p /etc/dnsmasq.d "$ETC/dns"
+  { echo "# managed by AutoInfra install-autoinfra.sh"; echo "bind-interfaces"; echo "listen-address=$MASTER_IP"; echo "except-interface=lo"
+    echo "no-resolv"; echo "no-hosts"; echo "addn-hosts=$ETC/dns/hosts"; echo "domain=${DNS_DOMAIN:-autoinfra.local}"; echo "expand-hosts"
+    echo "local=/${DNS_DOMAIN:-autoinfra.local}/"; echo "cache-size=1000"
+    for u in ${UPSTREAM_DNS:-}; do echo "server=$u"; done; } > /etc/dnsmasq.d/autoinfra.conf
+  AUTOINFRA_ETC="$ETC" bash "$APP/master/autoinfra-master-net" dns-update >/dev/null
+  systemctl enable --now dnsmasq >/dev/null 2>&1 || true; systemctl restart dnsmasq
+  log "DNS: dnsmasq on $MASTER_IP:53 (domain ${DNS_DOMAIN:-autoinfra.local}, upstream: ${UPSTREAM_DNS:-none})"
+elif [ "${DNS:-1}" = 1 ]; then log "WARNING: dnsmasq not installed - no DNS service (add dnsmasq to the master bundle)"; fi
+# the service user may run the master network helper (DNS records, routes to CloudStack's internal networks) as root
+chmod 0755 "$APP/master/autoinfra-master-net"
+echo "autoinfra ALL=(root) NOPASSWD: $APP/master/autoinfra-master-net" > /etc/sudoers.d/autoinfra.tmp
+chmod 0440 /etc/sudoers.d/autoinfra.tmp && visudo -cf /etc/sudoers.d/autoinfra.tmp >/dev/null && mv /etc/sudoers.d/autoinfra.tmp /etc/sudoers.d/autoinfra
+
 # 8) firewall
-if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q active; then ufw allow "$UI_PORT/tcp"; ufw allow "$REPO_PORT/tcp"; ufw allow 123/udp; fi
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q active; then ufw allow "$UI_PORT/tcp"; ufw allow "$REPO_PORT/tcp"; ufw allow 123/udp; ufw allow 53; fi
 if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
-  for p in "$UI_PORT/tcp" "$REPO_PORT/tcp" 123/udp; do firewall-cmd -q --permanent --add-port=$p; done; firewall-cmd -q --reload
+  for p in "$UI_PORT/tcp" "$REPO_PORT/tcp" 123/udp 53/udp 53/tcp; do firewall-cmd -q --permanent --add-port=$p; done; firewall-cmd -q --reload
 fi
 
 # 9) service (one gunicorn worker: deployment jobs are threads inside it)
