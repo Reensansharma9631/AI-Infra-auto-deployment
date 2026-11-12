@@ -155,6 +155,9 @@ def render_globals(s):
          ["enable_docker_repo: false", 'docker_apt_package: "docker.io"']) + [
         "", "# HA / load balancing of the API endpoints (off without a VIP: one controller, its own IP serves the APIs)",
         f'enable_haproxy: "{"yes" if net["vip"] else "no"}"', f'enable_keepalived: "{"yes" if net["vip"] else "no"}"',
+        # ProxySQL listens on VIP:3306 - without a VIP that is the controller's own IP, where MariaDB listens too
+        # (real lab: MariaDB 'Bind on TCP/IP port ... Address already in use')
+        f'enable_proxysql: "{"yes" if net["vip"] else "no"}"',
         "enable_neutron_provider_networks: \"yes\"",
         "", "# services",
     ]
@@ -382,6 +385,7 @@ def deploy():
     prep, _ = inventory.playbook_steps([("01-common.yml", "Configure repositories, NTP and base packages"),
                                          ("50-openstack-prep.yml", "OpenStack host preparation (external interface, clashing host services)")],
                                         hosts, extra_vars={"os_external_interface": s["network"]["external_interface"],
+                                                           "os_proxysql_enabled": bool(s["network"]["vip"]),
                                                            "os_stop_host_libvirt": bool(j.get("stop_host_libvirt", True))}, extra_groups=grp)
     pre = prep + ([{"name": "Detect the management interface on every node", "fn": "os_detect_interfaces", "args": {"config_dir": d}}]
                   if s["network"]["network_interface"] == "auto" else [])

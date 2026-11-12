@@ -104,7 +104,7 @@ def test_globals_airgap_and_network(operator, oslab):
     assert g["podman_sdk_python_externally_managed"] is True and g["virtualenv"] is None and "enable_docker_repo" not in g
     assert g["docker_registry"] == "10.0.0.5:5000" and g["docker_namespace"] == "openstack.kolla"
     assert g["kolla_internal_vip_address"] == "10.0.0.50" and g["neutron_plugin_agent"] == "openvswitch" and g["nova_compute_virt_type"] == "qemu"
-    assert g["enable_haproxy"] == "yes" and g["enable_keepalived"] == "yes"
+    assert g["enable_haproxy"] == "yes" and g["enable_keepalived"] == "yes" and g["enable_proxysql"] == "yes"
     assert g["openstack_release"] == "2026.1" and g["network_interface"] == "eth0" and g["neutron_external_interface"] == "eth1"
 
 
@@ -399,6 +399,7 @@ def test_single_controller_without_vip(operator, oslab):
     p = operator.get("/api/os/preview").get_json()
     g = yaml.safe_load(p["globals"])
     assert g["kolla_internal_vip_address"] == "10.0.0.11" and g["enable_haproxy"] == "no" and g["enable_keepalived"] == "no"
+    assert g["enable_proxysql"] == "no"          # would share controller-IP:3306 with MariaDB (real lab)
     assert "network_interface" not in g and g["neutron_external_interface"] == "osext0"
 
 
@@ -419,6 +420,7 @@ def test_deploy_runs_prep_before_kolla(app, operator, oslab, monkeypatch):
     calls = ansible_calls(app)
     prep = next(c for c in calls if c["playbook"] == "50-openstack-prep.yml")
     assert prep["vars"]["os_external_interface"] == "eth1" and prep["vars"]["os_stop_host_libvirt"] is True
+    assert prep["vars"]["os_proxysql_enabled"] is True
     assert "[os_nodes]" in prep["inventory"] and "[os_network]\nctl1" in prep["inventory"]
 
 

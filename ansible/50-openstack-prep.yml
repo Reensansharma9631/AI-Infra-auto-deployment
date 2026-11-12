@@ -45,6 +45,23 @@
         pkill -KILL -f '[q]emu-system-x86_64.*guest=' || true
       when: (os_stop_host_libvirt | default(true) | bool) and (os_qemu.stdout | default('0') | int) > 0
 
+- name: Leftover containers of services this configuration disables (Kolla does not remove them)
+  hosts: os_nodes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: ProxySQL when it is off (no VIP) - it would hold port 3306 before MariaDB
+      ansible.builtin.shell: |
+        for e in podman docker; do
+          command -v $e >/dev/null 2>&1 || continue
+          $e container exists proxysql 2>/dev/null || $e inspect proxysql >/dev/null 2>&1 || continue
+          systemctl disable --now kolla-proxysql-container.service >/dev/null 2>&1 || true
+          $e rm -f proxysql >/dev/null && echo removed
+        done; true
+      register: os_px
+      changed_when: "'removed' in os_px.stdout"
+      when: not (os_proxysql_enabled | default(true) | bool)
+
 - name: External (provider) interface on the network nodes
   hosts: os_network
   become: true
