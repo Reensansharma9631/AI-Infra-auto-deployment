@@ -47,6 +47,7 @@ if command -v ufw >/dev/null 2>&1; then echo "FW=ufw:$($S ufw status 2>/dev/null
 elif command -v firewall-cmd >/dev/null 2>&1; then echo "FW=firewalld:$($S firewall-cmd --state 2>/dev/null)"; else echo FW=none; fi
 command -v getenforce >/dev/null 2>&1 && echo "SELINUX=$(getenforce)"
 echo "MACHINE_ID=$(cat /etc/machine-id 2>/dev/null)"
+echo "NTP_SYNC=$(timedatectl show -p NTPSynchronized --value 2>/dev/null)"
 [ -d /sys/kernel/security/apparmor ] && echo APPARMOR=1
 for s in chronyd chrony sshd ssh libvirtd mysql mysqld cloudstack-management cloudstack-agent nginx haproxy rabbitmq-server zabbix-agent2 ollama; do
   if command -v systemctl >/dev/null 2>&1; then echo "SVC_$s=$(systemctl is-active $s 2>/dev/null | head -1)"; fi
@@ -249,6 +250,9 @@ def evaluate(facts, th, master_epoch=None, roles=()):
     add("Security checks", "warn" if facts.get("SSHD_PWAUTH") == "yes" else "pass", "; ".join(sec))
     py = facts.get("PYTHON", "none")
     add("Python for Ansible", "pass" if py not in ("none", "") else "fail", py)
+    if facts.get("NTP_SYNC"):     # skew alone hides a node that is not syncing at all (real lab: Kolla prechecks refused)
+        add("Time synchronized (NTP)", "pass" if facts["NTP_SYNC"] == "yes" else "warn",
+            "synchronized" if facts["NTP_SYNC"] == "yes" else "not synchronized - the master must serve NTP (chrony) and UDP 123 must be open")
     if facts.get("MACHINE_ID"):     # compared across hosts by the check job (cloned VMs share it)
         add("Machine ID", "pass", facts["MACHINE_ID"])
     return r

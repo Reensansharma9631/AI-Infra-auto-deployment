@@ -215,3 +215,9 @@ def test_machine_id_reported():
     r = sshops.evaluate(facts(MACHINE_ID="c092735d68eb4e01a129d03eefe52b7f"), TH, master_epoch=1000)
     assert check(r, "Machine ID") == "pass" and any(c["detail"] == "c092735d68eb4e01a129d03eefe52b7f" for c in r)
     assert all(c["name"] != "Machine ID" for c in sshops.evaluate(facts(), TH, master_epoch=1000))
+
+
+
+@pytest.mark.parametrize("val,status", [("yes", "pass"), ("no", "warn")])
+def test_ntp_synchronized_check(val, status):
+    assert check(sshops.evaluate(facts(NTP_SYNC=val), TH, master_epoch=1000), "Time synchronized (NTP)") == status
