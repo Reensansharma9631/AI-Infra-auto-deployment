@@ -150,10 +150,27 @@ if [ "${DNS:-1}" = 1 ] && command -v dnsmasq >/dev/null; then
   systemctl enable --now dnsmasq >/dev/null 2>&1 || true; systemctl restart dnsmasq
   log "DNS: dnsmasq on $MASTER_IP:53 (domain ${DNS_DOMAIN:-autoinfra.local}, upstream: ${UPSTREAM_DNS:-none})"
 elif [ "${DNS:-1}" = 1 ]; then log "WARNING: dnsmasq not installed - no DNS service (add dnsmasq to the master bundle)"; fi
-# the service user may run the master network helper (DNS records, routes to CloudStack's internal networks) as root
-chmod 0755 "$APP/master/autoinfra-master-net"
-echo "autoinfra ALL=(root) NOPASSWD: $APP/master/autoinfra-master-net" > /etc/sudoers.d/autoinfra.tmp
-chmod 0440 /etc/sudoers.d/autoinfra.tmp && visudo -cf /etc/sudoers.d/autoinfra.tmp >/dev/null && mv /etc/sudoers.d/autoinfra.tmp /etc/sudoers.d/autoinfra
+# the service (NoNewPrivileges, no sudo) asks root for DNS records / routes through a request file watched by a path unit
+chmod 0755 "$APP/master/autoinfra-master-net"; rm -f /etc/sudoers.d/autoinfra
+mkdir -p "$DATA/master-net"; chown autoinfra:autoinfra "$DATA/master-net"; chmod 0755 "$DATA/master-net"
+cat > /etc/systemd/system/autoinfra-master-net.service <<EOT
+[Unit]
+Description=AutoInfra master network helper (DNS records, routes) - runs requests from the service
+[Service]
+Type=oneshot
+Environment=AUTOINFRA_DATA=$DATA
+ExecStart=/bin/bash $APP/master/autoinfra-master-net run-request
+EOT
+cat > /etc/systemd/system/autoinfra-master-net.path <<EOT
+[Unit]
+Description=Watch for AutoInfra master network requests
+[Path]
+PathChanged=$DATA/master-net/request.json
+Unit=autoinfra-master-net.service
+[Install]
+WantedBy=multi-user.target
+EOT
+if [ "${NO_SYSTEMD:-0}" != 1 ]; then systemctl daemon-reload; systemctl enable --now autoinfra-master-net.path >/dev/null 2>&1 || true; fi
 
 # 8) firewall
 if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q active; then ufw allow "$UI_PORT/tcp"; ufw allow "$REPO_PORT/tcp"; ufw allow 123/udp; ufw allow 53; fi

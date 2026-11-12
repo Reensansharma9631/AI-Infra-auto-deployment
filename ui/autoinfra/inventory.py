@@ -20,7 +20,7 @@ def master_net_helper():
     p = os.environ.get("AUTOINFRA_MASTER_NET")
     if p is None:
         p = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "master", "autoinfra-master-net"))
-        if not (os.path.exists(p) and os.path.exists("/etc/sudoers.d/autoinfra")):
+        if not (os.path.exists(p) and os.path.exists("/etc/systemd/system/autoinfra-master-net.path")):
             return None
     return p or None
 
@@ -32,14 +32,39 @@ def master_net(*args, log=None):
     if not p:
         return False, "master network helper not installed (install-autoinfra.sh sets it up)"
     try:
-        cmd = ([] if os.geteuid() == 0 or os.environ.get("AUTOINFRA_MASTER_NET") else ["sudo", "-n"]) + [p, *args]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        out = (r.stdout + r.stderr).strip()
+        if os.geteuid() == 0 or os.environ.get("AUTOINFRA_MASTER_NET"):
+            r = subprocess.run([p, *args], capture_output=True, text=True, timeout=60)
+            ok, out = r.returncode == 0, (r.stdout + r.stderr).strip()
+        else:
+            ok, out = _master_net_request(args)
         if log:
             log(f"[master] {' '.join(args)}: {out[-300:]}")
-        return r.returncode == 0, out
+        return ok, out
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
+
+
+def _master_net_request(args, wait=60):
+    """The service runs without privileges: write <data>/master-net/request.json (atomic rename -> the root path unit runs
+    the helper) and wait for result.json with our id."""
+    import time
+    d = os.path.join(db.data_dir(), "master-net")
+    os.makedirs(d, exist_ok=True)
+    rid = uuid.uuid4().hex
+    tmp, req, res = os.path.join(d, "request.json.tmp"), os.path.join(d, "request.json"), os.path.join(d, "result.json")
+    with open(tmp, "w") as fh:
+        json.dump({"id": rid, "args": list(args)}, fh)
+    os.replace(tmp, req)
+    end = time.time() + wait
+    while time.time() < end:
+        try:
+            r = json.load(open(res))
+            if r.get("id") == rid:
+                return r.get("rc") == 0, str(r.get("output", ""))
+        except (OSError, ValueError):
+            pass
+        time.sleep(0.5)
+    return False, "no answer from the master network helper (is autoinfra-master-net.path active? re-run install-autoinfra.sh)"
 
 
 def ansible_dir():

@@ -50,7 +50,7 @@ def test_routes_unit_and_idempotency(tmp_path):
 def test_installer_ships_dns_and_sudoers():
     inst = (ROOT / "master/install-autoinfra.sh").read_text()
     assert "dnsmasq" in inst and "listen-address=$MASTER_IP" in inst and "no-resolv" in inst and "addn-hosts=" in inst
-    assert "/etc/sudoers.d/autoinfra" in inst and "visudo -cf" in inst and "autoinfra-master-net" in inst
+    assert "autoinfra-master-net" in inst
     for f in ("master-ubuntu.pkgs", "master-rhel.pkgs"):
         assert "dnsmasq" in (ROOT / "online/lists" / f).read_text().split()
 
@@ -110,3 +110,52 @@ def test_zone_dns_defaults_to_the_master(app, operator):
         db.set_setting("master_ip", "10.0.0.5")
     s = operator.get("/api/cs/wizard").get_json()["state"]
     assert s["zone"]["dns1"] == "10.0.0.5" and s["zone"]["internal_dns1"] == "10.0.0.5"
+
+
+def test_run_request_answers_only_known_commands(tmp_path):
+    """Root side of the request file mechanism (autoinfra-master-net.path -> run-request)."""
+    data = tmp_path / "data"; d = data / "master-net"; d.mkdir(parents=True)
+    env = dict(os.environ, AUTOINFRA_ETC=str(tmp_path / "etc"), AUTOINFRA_DATA=str(data), AUTOINFRA_UNIT_DIR=str(tmp_path / "u"),
+               AUTOINFRA_NO_SYSTEMD="1", AUTOINFRA_MASTER_IP="10.0.0.5")
+    (tmp_path / "etc").mkdir(); (tmp_path / "u").mkdir()
+    for rid, args, rc_ok, needle in (("a1", ["routes", "10.0.1.21", "10.200.0.0/24"], True, "routes set"),
+                                     ("a2", ["rm", "-rf", "/"], False, "refused"),
+                                     ("a3", ["routes", "10.0.1.21", "bad"], False, "bad cidr")):
+        (d / "request.json").write_text(json.dumps({"id": rid, "args": args}))
+        r = subprocess.run(["bash", str(HELPER), "run-request"], capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stdout + r.stderr
+        res = json.loads((d / "result.json").read_text())
+        assert res["id"] == rid and (res["rc"] == 0) is rc_ok and needle in res["output"], res
+
+
+def test_service_side_request_roundtrip(app, tmp_path, monkeypatch):
+    """Unprivileged service: write the request, a (simulated) root path unit runs the helper, the service reads the answer."""
+    import threading, time
+    from autoinfra import inventory, db
+    monkeypatch.delenv("AUTOINFRA_MASTER_NET", raising=False)
+    with app.app_context():
+        data = db.data_dir()
+    d = pathlib.Path(data) / "master-net"; d.mkdir(exist_ok=True)
+    env = dict(os.environ, AUTOINFRA_ETC=str(tmp_path / "etc"), AUTOINFRA_DATA=str(data), AUTOINFRA_UNIT_DIR=str(tmp_path / "u"),
+               AUTOINFRA_NO_SYSTEMD="1", AUTOINFRA_MASTER_IP="10.0.0.5")
+    (tmp_path / "etc").mkdir(); (tmp_path / "u").mkdir()
+
+    def root_side():
+        for _ in range(100):
+            if (d / "request.json").exists():
+                subprocess.run(["bash", str(HELPER), "run-request"], env=env, capture_output=True)
+                return
+            time.sleep(0.1)
+    t = threading.Thread(target=root_side, daemon=True); t.start()
+    with app.app_context():
+        monkeypatch.setattr(inventory, "master_net_helper", lambda: str(HELPER))
+        ok, out = inventory._master_net_request(["routes", "10.0.1.21", "10.200.0.0/24", "10.201.0.0/24"], wait=15)
+    t.join(5)
+    assert ok and "routes set" in out, out
+    assert "10.201.0.0/24 via 10.0.1.21" in (tmp_path / "u/autoinfra-routes.service").read_text()
+
+
+def test_installer_uses_path_unit_not_sudo():
+    inst = (ROOT / "master/install-autoinfra.sh").read_text()
+    assert "autoinfra-master-net.path" in inst and "PathChanged=$DATA/master-net/request.json" in inst and "run-request" in inst
+    assert "NOPASSWD" not in inst and "rm -f /etc/sudoers.d/autoinfra" in inst

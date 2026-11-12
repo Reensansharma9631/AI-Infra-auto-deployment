@@ -3,6 +3,8 @@
 #   autoinfra-master-net dns-update            regenerate the DNS records (dnsmasq) from the host inventory + master, reload
 #   autoinfra-master-net routes <gw> <cidr>... persistent routes from the master to CloudStack's internal pod/public subnets
 #   autoinfra-master-net routes-clear          remove them
+#   autoinfra-master-net run-request           (root, from autoinfra-master-net.path) run the request the service wrote to
+#                                              <data>/master-net/request.json and answer in result.json - no sudo needed
 # Safe to re-run. Nothing here reaches the network.
 set -Eeuo pipefail
 ETC="${AUTOINFRA_ETC:-/etc/autoinfra}"; DATA="${AUTOINFRA_DATA:-/var/lib/autoinfra}"; UNIT_DIR="${AUTOINFRA_UNIT_DIR:-/etc/systemd/system}"
@@ -42,7 +44,27 @@ routes)
   } > "$u.tmp"
   if ! cmp -s "$u.tmp" "$u"; then mv "$u.tmp" "$u"; sysctl_ daemon-reload; sysctl_ enable --now autoinfra-routes.service >/dev/null 2>&1 || true; sysctl_ restart autoinfra-routes.service; echo "routes set: $* via $gw"
   else rm -f "$u.tmp"; sysctl_ start autoinfra-routes.service 2>/dev/null || true; echo "routes unchanged"; fi;;
+run-request)
+  d="$DATA/master-net"; req="$d/request.json"; [ -f "$req" ] || exit 0
+  python3 - "$0" "$req" "$d/result.json" <<'PY'
+import json, os, subprocess, sys
+me, req, res = sys.argv[1:4]
+try:
+    r = json.load(open(req)); args = [str(a) for a in r.get("args", [])]; rid = str(r.get("id", ""))
+except (OSError, ValueError) as e:
+    sys.exit(f"bad request: {e}")
+if not args or args[0] not in ("dns-update", "routes", "routes-clear"):
+    out, rc = f"refused: {args[:1]}", 1
+else:
+    p = subprocess.run(["bash", me, *args], capture_output=True, text=True, env=dict(os.environ))
+    out, rc = (p.stdout + p.stderr)[-2000:], p.returncode
+tmp = res + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump({"id": rid, "rc": rc, "output": out}, fh)
+os.chmod(tmp, 0o644); os.replace(tmp, res)
+PY
+  ;;
 routes-clear)
   sysctl_ disable --now autoinfra-routes.service >/dev/null 2>&1 || true; rm -f "$UNIT_DIR/autoinfra-routes.service"; sysctl_ daemon-reload; echo "routes cleared";;
-*) echo "usage: $0 dns-update | routes <gw> <cidr>... | routes-clear" >&2; exit 1;;
+*) echo "usage: $0 dns-update | routes <gw> <cidr>... | routes-clear | run-request" >&2; exit 1;;
 esac
