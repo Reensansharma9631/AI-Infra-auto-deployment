@@ -80,7 +80,11 @@ def main():
         os_(env, "subnet", "create", "--network", f"{NAME}-net", "--subnet-range", "192.168.77.0/24", "--dns-nameserver",
             envf.get("AUTOINFRA_MASTER_IP", "172.27.15.238"), f"{NAME}-subnet")
     net = os_(env, "network", "show", f"{NAME}-net")
-    if not any(s["Name"] == NAME for s in os_(env, "server", "list")):
+    old = next((x for x in os_(env, "server", "list") if x["Name"] == NAME), None)
+    if old and old["Status"] == "ERROR":           # a failed earlier attempt: start over, do not report its old fault
+        os_(env, "server", "delete", "--wait", old["ID"], fmt=False)
+        old = None
+    if not old:
         os_(env, "server", "create", "--image", NAME, "--flavor", NAME, "--network", f"{NAME}-net", NAME)
     srv = wait(lambda: (lambda s: s if s["status"] in ("ACTIVE", "ERROR") else None)(os_(env, "server", "show", NAME)), 900, 10)
     ip = None
