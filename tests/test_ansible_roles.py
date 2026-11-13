@@ -836,3 +836,11 @@ def test_openstack_release_order_and_verification():
     for n, t in tasks.items():     # no swallowed errors - except reading a list that may not exist (nothing to restore)
         assert t.get("failed_when") is not False or n == "Services stopped by 50-openstack-prep.yml", n
     assert "openstack\\.kolla" in tasks["Stop every Kolla container (image from openstack.kolla - also sidecars without the kolla label)"]["ansible.builtin.shell"]
+
+
+
+def test_kvm_ssh_to_system_vms_times_out():
+    """Real lab: a router_proxy.sh ssh to a destroyed VR hung for over an hour and blocked the router's next commands."""
+    tasks = {t["name"]: t for t in yaml.safe_load((ANS / "roles/kvm_host/tasks/main.yml").read_text())}
+    b = tasks["SSH to system VMs (link-local) - give up on vanished VMs instead of hanging forever"]["ansible.builtin.blockinfile"]
+    assert b["path"] == "/root/.ssh/config" and "Host 169.254.*" in b["block"] and "ServerAliveInterval" in b["block"] and "ConnectTimeout" in b["block"]

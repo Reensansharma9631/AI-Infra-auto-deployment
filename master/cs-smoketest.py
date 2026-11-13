@@ -92,7 +92,12 @@ def main():
         cps = [v for v in svms if v.get("systemvmtype") == "consoleproxy"]
     check(f"console proxies Running/Up >= {want_cp} (wizard setting)",
           len([v for v in cps if v["state"] == "Running" and v.get("agentstate") == "Up"]) >= want_cp, [v["name"] for v in cps])
-    check("SSVM and CPVM Running, agents Up", len(svms) >= 2 and all(v["state"] == "Running" and v.get("agentstate") == "Up" for v in svms),
+    # CloudStack scales SSVMs by load and leaves a surplus one Stopped (e.g. after its host was lent to OpenStack): required are
+    # >=1 SSVM and every RUNNING system VM with its agent Up
+    run = [v for v in svms if v["state"] == "Running"]
+    check("SSVM and CPVM Running, agents Up",
+          any(v.get("systemvmtype") == "secondarystoragevm" for v in run) and any(v.get("systemvmtype") == "consoleproxy" for v in run)
+          and all(v.get("agentstate") == "Up" for v in run),
           {v["name"]: f"{v['state']}/{v.get('agentstate')}" for v in svms})
 
     # 2. guest template from the master's repository

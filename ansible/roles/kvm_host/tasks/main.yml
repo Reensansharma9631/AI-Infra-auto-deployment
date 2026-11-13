@@ -79,6 +79,21 @@
       ansible.builtin.lineinfile: {path: /root/.ssh/authorized_keys, line: "{{ item }}", create: true, mode: "0600"}
       loop: "{{ ((kvm_mgmt_pubkeys | default([])) + ([kvm_mgmt_pubkey] if (kvm_mgmt_pubkey | default('')) else [])) | unique }}"
 
+- name: SSH to system VMs (link-local) - give up on vanished VMs instead of hanging forever
+  # CloudStack's router_proxy.sh runs 'ssh -p 3922 root@169.254.x' without timeouts: a VR destroyed during a command left an
+  # ssh waiting for over an hour, and every later command for that router queued behind it (real lab)
+  ansible.builtin.blockinfile:
+    path: /root/.ssh/config
+    create: true
+    mode: "0600"
+    marker: "# {mark} AUTOINFRA link-local system VMs"
+    block: |
+      Host 169.254.*
+          ConnectTimeout 10
+          ServerAliveInterval 15
+          ServerAliveCountMax 4
+  when: kvm_cloudstack_agent | default(true) | bool
+
 - name: libvirtd running
   ansible.builtin.service: {name: libvirtd, state: started, enabled: true}
   when: autoinfra_services | default(true) | bool
