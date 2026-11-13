@@ -364,16 +364,7 @@ def deploy():
     d, have_share = write_config(s)
     if not have_share and not j.get("force"):
         return jsonify(error="kolla-ansible is not installed on the master (run master/install-kolla-tools.sh or set Settings > Kolla share dir)"), 409
-    kb = kolla_bin()
-    inv = os.path.join(d, "multinode")
-    env = {"ANSIBLE_PRIVATE_KEY_FILE": inventory.key_path(), "ANSIBLE_HOST_KEY_CHECKING": "False", "PYTHONUNBUFFERED": "1"}
-    coll = db.get_setting("kolla_collections_dir") or "/opt/airgap/collections"     # written by master/install-kolla-tools.sh
-    if os.path.isdir(coll):
-        env["ANSIBLE_COLLECTIONS_PATH"] = coll
-    kb_dir = os.path.dirname(kb) if os.path.isabs(kb) else ""
-    if kb_dir:                                   # kolla-ansible calls the ansible-playbook of its own venv
-        env["PATH"] = kb_dir + os.pathsep + os.environ.get("PATH", "")
-    base = ["-i", inv, "--configdir", d, "--passwords", os.path.join(d, "passwords.yml")]
+    kb, base, env = kolla_cmd(d)
     actions = [("bootstrap-servers", "Bootstrap servers (docker, users, kernel settings)"), ("prechecks", "Kolla pre-checks"),
                ("pull", "Pull images from the master registry"), ("deploy", "Deploy OpenStack services"),
                ("post-deploy", "Post-deploy (admin-openrc.sh / clouds.yaml)")]
@@ -414,10 +405,58 @@ def kolla_secrets(d):
     return out
 
 
+def kolla_cmd(d):
+    """kolla-ansible binary, the common arguments and the environment for the master's service user."""
+    kb = kolla_bin()
+    inv = os.path.join(d, "multinode")
+    env = {"ANSIBLE_PRIVATE_KEY_FILE": inventory.key_path(), "ANSIBLE_HOST_KEY_CHECKING": "False", "PYTHONUNBUFFERED": "1"}
+    coll = db.get_setting("kolla_collections_dir") or "/opt/airgap/collections"     # written by master/install-kolla-tools.sh
+    if os.path.isdir(coll):
+        env["ANSIBLE_COLLECTIONS_PATH"] = coll
+    kb_dir = os.path.dirname(kb) if os.path.isabs(kb) else ""
+    if kb_dir:                                   # kolla-ansible calls the ansible-playbook of its own venv
+        env["PATH"] = kb_dir + os.pathsep + os.environ.get("PATH", "")
+    base = ["-i", inv, "--configdir", d, "--passwords", os.path.join(d, "passwords.yml")]
+    return kb, base, env
+
+
 def os_hosts(s):
     n = s["nodes"]
     ids = set(n["controller_ids"]) | set(n["compute_ids"]) | set(n.get("storage_ids") or []) | set(n.get("network_ids") or [])
     return [h for i, h in hosts_by_id().items() if i in ids]
+
+
+@bp.route("/api/os/destroy", methods=["POST"])
+@auth.role_required("admin")
+def destroy():
+    """Remove the OpenStack deployment from the nodes (kolla-ansible destroy: containers, volumes, config) and forget
+    passwords.yml, so the next deployment starts clean with new secrets. Host services stopped for OpenStack stay stopped
+    until 51-openstack-release.yml (Release hosts)."""
+    j = request.get_json(silent=True) or {}
+    if j.get("confirm") != "destroy":
+        return jsonify(error="send {\"confirm\": \"destroy\"} - this deletes every OpenStack container and volume on the nodes"), 400
+    busy = jobs.running("deploy-openstack") or jobs.running("destroy-openstack")
+    if busy:
+        return jsonify(error=f"job #{busy['id']} is running - wait for it or cancel it"), 409
+    d = config_dir()
+    if not os.path.exists(os.path.join(d, "multinode")):
+        return jsonify(error="nothing deployed from this master (no inventory)"), 409
+    kb, base, env = kolla_cmd(d)
+    steps = [{"name": "Destroy OpenStack (kolla-ansible destroy)", "cmd": [kb, "destroy"] + base + ["--yes-i-really-really-mean-it"], "env": env,
+              "cwd": d},
+             {"name": "Forget the service passwords (new ones at the next deployment)", "fn": "os_forget_passwords", "args": {"config_dir": d}}]
+    jid = jobs.start("destroy-openstack", "Remove the OpenStack deployment", steps, meta={"config_dir": d}, secrets=kolla_secrets(d))
+    auth.audit("os.destroy", "", f"job {jid}")
+    return jsonify(job_id=jid), 202
+
+
+@jobs.register("os_forget_passwords")
+def os_forget_passwords(log, config_dir):
+    p = os.path.join(config_dir, "passwords.yml")
+    if os.path.exists(p):
+        os.unlink(p)
+        log("passwords.yml removed - the next deployment generates new secrets")
+    return True
 
 
 @jobs.register("os_detect_interfaces")

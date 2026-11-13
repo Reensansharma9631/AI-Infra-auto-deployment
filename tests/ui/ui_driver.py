@@ -86,6 +86,20 @@ def openstack(page, plan, force=False):
     return jid
 
 
+def openstack_destroy(page, plan=None, force=False):
+    """Admin: 'Remove OpenStack deployment' - answers the typed confirmation like an operator."""
+    page.goto(f"{URL}/openstack/wizard#deploy")
+    page.wait_for_load_state("networkidle")
+    page.once("dialog", lambda d: d.accept("destroy"))
+    btn = page.locator("#ow-destroy")
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    page.locator("#ow-job:not([hidden])").wait_for(timeout=30000)
+    jid = page.locator("#ow-jt").inner_text().strip().lstrip("job #")
+    shot(page, "openstack-destroy-started")
+    return jid
+
+
 if __name__ == "__main__":
     what, plan_file = sys.argv[1], sys.argv[2]
     plan = json.load(open(plan_file))
@@ -95,7 +109,7 @@ if __name__ == "__main__":
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         login(page)
-        jid = {"openstack": openstack}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
+        jid = {"openstack": openstack, "openstack-destroy": openstack_destroy}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
         b.close()
     if errors:
         print("JavaScript errors:", errors)

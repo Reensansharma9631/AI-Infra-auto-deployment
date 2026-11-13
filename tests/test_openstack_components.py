@@ -514,3 +514,19 @@ def test_image_list_covers_every_wizard_option():
             need |= {m.group(1) for m in _re.finditer(r'_image:\s*"\{\{\s*docker_image_url\s*\}\}([a-z0-9][a-z0-9._-]*)"', f.read_text())}
     have = {l.strip() for l in (ROOT / "online/lists/openstack-images.txt").read_text().splitlines() if l.strip() and not l.startswith("#")}
     assert not (need - have - OPTIONAL_IMAGES), sorted(need - have - OPTIONAL_IMAGES)
+
+
+
+def test_destroy_needs_confirmation_admin_and_a_deployment(app, operator, admin, oslab, monkeypatch):
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab)
+    assert operator.post("/api/os/destroy", json={"confirm": "destroy"}).status_code == 403          # admin only
+    assert admin.post("/api/os/destroy", json={}).status_code == 400                                  # typed confirmation
+    wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
+    r = admin.post("/api/os/destroy", json={"confirm": "destroy"})
+    assert r.status_code == 202, r.get_json()
+    jd = wait_job(admin, r.get_json()["job_id"])
+    assert jd["state"] == "success" and [s["name"] for s in jd["steps"]][0] == "Destroy OpenStack (kolla-ansible destroy)"
+    from autoinfra import openstack
+    with app.app_context():
+        assert not os.path.exists(os.path.join(openstack.config_dir(), "passwords.yml"))

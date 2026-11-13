@@ -115,6 +115,13 @@ window.page_oswizard = async function () {
       watchJob(r.job_id, $("#ow-log"), (j) => toast(`OpenStack deployment ${j.state}`, j.state === "success" ? "ok" : "bad"), (j) => ($("#ow-jsteps").innerHTML = stepsList(j.steps)));
     } catch (e) { const st = e.data?.steps; $("#ow-errors").innerHTML = `<div class="note">${st ? Object.entries(st).map(([k, v]) => `<b>${esc(k)}</b>: ${esc(Object.values(v).join("; "))}`).join("<br>") : esc(e.message)}</div>`; }
   });
+  $("#ow-destroy").addEventListener("click", async () => {
+    const typed = prompt("This deletes every OpenStack container and volume on the nodes. Type destroy to continue:");
+    if (typed !== "destroy") return;
+    try { const r = await POST("/api/os/destroy", { confirm: "destroy" }); $("#ow-job").hidden = false; $("#ow-jt").textContent = `job #${r.job_id}`;
+      watchJob(r.job_id, $("#ow-log"), (j) => toast(`OpenStack removal ${j.state}`, j.state === "success" ? "ok" : "bad"), (j) => ($("#ow-jsteps").innerHTML = stepsList(j.steps)));
+    } catch (e) { toast(e.message, "bad"); }
+  });
   $("#ow-regen").addEventListener("click", async () => { if (confirm("Only for a cloud that is NOT deployed yet. Continue?")) { const r = await POST("/api/os/passwords/regenerate"); toast(r.note, "ok"); } });
   await wz.start();
 };

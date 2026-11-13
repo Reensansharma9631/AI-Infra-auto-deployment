@@ -39,7 +39,8 @@
         <div class="utabs" data-tabs="pv" data-hash="no"><button data-t="g" type="button">globals.yml</button><button data-t="m" type="button">multinode</button></div>
         <div class="pane" data-pane="g"><pre class="term" id="ow-globals"></pre></div><div class="pane" data-pane="m"><pre class="term" id="ow-multi"></pre></div>
         <div class="flex mt"><button class="btn lg" id="ow-deploy" data-need="operator">{{ ic('play') }} Start OpenStack Deployment</button>
-          <button class="btn g" id="ow-regen" data-need="admin">Generate new service passwords</button><label class="chk"><input type="checkbox" id="ow-force"> continue without kolla-ansible (lab)</label></div>
+          <button class="btn g" id="ow-regen" data-need="admin">Generate new service passwords</button>
+          <button class="btn g" id="ow-destroy" data-need="admin" type="button">Remove OpenStack deployment</button><label class="chk"><input type="checkbox" id="ow-force"> continue without kolla-ansible (lab)</label></div>
         <div id="ow-job" hidden class="mt"><h2>Progress <span class="muted" id="ow-jt"></span></h2><div id="ow-jsteps"></div><div class="term mt" id="ow-log"></div></div>
       </div>
     </div>
