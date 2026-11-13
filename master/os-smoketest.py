@@ -80,12 +80,19 @@ def main():
         os_(env, "subnet", "create", "--network", f"{NAME}-net", "--subnet-range", "192.168.77.0/24", "--dns-nameserver",
             envf.get("AUTOINFRA_MASTER_IP", "172.27.15.238"), f"{NAME}-subnet")
     net = os_(env, "network", "show", f"{NAME}-net")
+    # the default security group drops all ingress (by design): the test VM gets one that allows ICMP + SSH, like a user would
+    if not any(g["Name"] == NAME for g in os_(env, "security", "group", "list")):
+        os_(env, "security", "group", "create", NAME)
+        os_(env, "security", "group", "rule", "create", "--ingress", "--protocol", "icmp", NAME)
+        os_(env, "security", "group", "rule", "create", "--ingress", "--protocol", "tcp", "--dst-port", "22", NAME)
     old = next((x for x in os_(env, "server", "list") if x["Name"] == NAME), None)
+    if old and old["Status"] == "ACTIVE" and NAME not in json.dumps(os_(env, "server", "show", NAME).get("security_groups")):
+        os_(env, "server", "add", "security", "group", NAME, NAME, fmt=False)
     if old and old["Status"] == "ERROR":           # a failed earlier attempt: start over, do not report its old fault
         os_(env, "server", "delete", "--wait", old["ID"], fmt=False)
         old = None
     if not old:
-        os_(env, "server", "create", "--image", NAME, "--flavor", NAME, "--network", f"{NAME}-net", NAME)
+        os_(env, "server", "create", "--image", NAME, "--flavor", NAME, "--network", f"{NAME}-net", "--security-group", NAME, NAME)
     srv = wait(lambda: (lambda s: s if s["status"] in ("ACTIVE", "ERROR") else None)(os_(env, "server", "show", NAME)), 900, 10)
     ip = None
     if srv:
@@ -105,13 +112,21 @@ def main():
              f"echo \"$l\") 2>/dev/null ); case \"$b\" in SSH-*) echo \"$b\"; exit 0;; esac; sleep 6; done; echo ERR'")
     out = ""
     if row:
-        out = subprocess.run(["ssh", "-i", os.path.join(data, "ssh", "id_ed25519"), "-p", str(row[2] or 22), "-o", "BatchMode=yes",
+        try:
+            out = subprocess.run(["ssh", "-i", os.path.join(data, "ssh", "id_ed25519"), "-p", str(row[2] or 22), "-o", "BatchMode=yes",
                               "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR",
                               f"{row[1] or 'root'}@{row[0]}", probe], capture_output=True, text=True, timeout=420).stdout.strip()
+        except subprocess.TimeoutExpired:
+            out = "timeout"
+    ping = subprocess.run(["ssh", "-i", os.path.join(data, "ssh", "id_ed25519"), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                           "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"{row[1] or 'root'}@{row[0]}",
+                           f"sudo ip netns exec {ns} ping -c 3 -W 2 {ip}"], capture_output=True, text=True, timeout=60).returncode == 0 if row else False
+    check("VM answers ping (security group allows ICMP)", ping, f"{ip} from {ns}")
     check("VM reachable: SSH banner from the OVN metadata namespace", out.startswith("SSH-"), f"{ip}:22 via {ns} on {host}: {out[:60]}")
 
     if a.cleanup:
-        for args in (("server", "delete", "--wait", NAME), ("subnet", "delete", f"{NAME}-subnet"), ("network", "delete", f"{NAME}-net")):
+        for args in (("server", "delete", "--wait", NAME), ("subnet", "delete", f"{NAME}-subnet"), ("network", "delete", f"{NAME}-net"),
+                     ("security", "group", "delete", NAME)):
             try:
                 os_(env, *args, fmt=False)
             except RuntimeError:
