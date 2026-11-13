@@ -844,3 +844,13 @@ def test_kvm_ssh_to_system_vms_times_out():
     tasks = {t["name"]: t for t in yaml.safe_load((ANS / "roles/kvm_host/tasks/main.yml").read_text())}
     b = tasks["SSH to system VMs (link-local) - give up on vanished VMs instead of hanging forever"]["ansible.builtin.blockinfile"]
     assert b["path"] == "/root/.ssh/config" and "Host 169.254.*" in b["block"] and "ServerAliveInterval" in b["block"] and "ConnectTimeout" in b["block"]
+
+
+def test_repo_role_online_restores_distro_sources():
+    tasks = yaml.safe_load((ANS / "roles/airgap_repo/tasks/main.yml").read_text())
+    for blk in tasks:
+        names = {t["name"]: t for t in blk["block"]}
+        restore = next(t for n, t in names.items() if n.startswith("Online site - restore"))
+        disable = next(t for n, t in names.items() if n.startswith("Disable every non-AutoInfra"))
+        assert restore["when"] == "airgap_online | bool" and disable["when"] == "not (airgap_online | bool)"
+        assert ".airgap-disabled" in restore["ansible.builtin.shell"]

@@ -5,7 +5,20 @@
   when: ansible_facts['os_family'] == 'Debian'
   tags: repo
   block:
+    - name: Online site - restore the distro apt sources an earlier offline run disabled
+      ansible.builtin.shell: |
+        changed=0
+        for f in /etc/apt/sources.list.airgap-disabled $(find /etc/apt/sources.list.d -maxdepth 1 -type f -name '*.airgap-disabled'); do
+          [ -f "$f" ] || continue
+          mv "$f" "${f%.airgap-disabled}"; changed=1
+        done
+        echo "changed=$changed"
+      args: {executable: /bin/bash}
+      register: apt_restore
+      changed_when: "'changed=1' in apt_restore.stdout"
+      when: airgap_online | bool
     - name: Disable every non-AutoInfra apt source (apt must not hang on dead mirrors)
+      when: not (airgap_online | bool)
       ansible.builtin.shell: |
         set -e
         changed=0
@@ -31,7 +44,16 @@
   when: ansible_facts['os_family'] == 'RedHat'
   tags: repo
   block:
+    - name: Online site - restore the .repo files an earlier offline run disabled
+      ansible.builtin.shell: |
+        changed=0
+        for f in $(find /etc/yum.repos.d -maxdepth 1 -type f -name '*.airgap-disabled'); do mv "$f" "${f%.airgap-disabled}"; changed=1; done
+        echo "changed=$changed"
+      register: dnf_restore
+      changed_when: "'changed=1' in dnf_restore.stdout"
+      when: airgap_online | bool
     - name: Disable every non-AutoInfra .repo file
+      when: not (airgap_online | bool)
       ansible.builtin.shell: |
         changed=0
         for f in /etc/yum.repos.d/*.repo; do

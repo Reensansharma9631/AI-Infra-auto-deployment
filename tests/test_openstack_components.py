@@ -562,3 +562,19 @@ def test_release_hosts(app, operator, admin, oslab):
     assert j["state"] == "success"
     call = next(c for c in ansible_calls(app) if c["playbook"] == "51-openstack-release.yml")
     assert "[os_nodes]" in call["inventory"] and "ctl1" in call["inventory"]
+
+
+def test_online_mode_uses_quay_and_keeps_internet_sources(app, operator, oslab, monkeypatch):
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab, requirements={"release": "2026.1", "base_distro": "ubuntu", "mode": "online"}, network={"registry": ""})
+    g = yaml.safe_load(operator.get("/api/os/preview").get_json()["globals"])
+    assert g["podman_registry"] == "quay.io" and g["podman_registry_insecure"] is False and g["docker_registry_insecure"] is False
+    wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
+    common = next(c for c in ansible_calls(app) if c["playbook"] == "01-common.yml")
+    assert common["vars"]["airgap_online"] is True
+
+
+def test_offline_mode_default(operator, oslab):
+    os_fill(operator, oslab, network={"registry": ""})
+    g = yaml.safe_load(operator.get("/api/os/preview").get_json()["globals"])
+    assert g["podman_registry"] == "10.0.0.5:5000" and g["podman_registry_insecure"] is True
