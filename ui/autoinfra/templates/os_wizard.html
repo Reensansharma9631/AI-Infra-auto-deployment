@@ -8,7 +8,7 @@
       <form class="pane" data-step="requirements"><h2>Check Requirements</h2><div class="errs"></div>
         <div class="row"><div class="f"><label>OpenStack release</label><select name="release">{% for v in versions %}<option>{{ v }}</option>{% endfor %}</select></div>
           <div class="f"><label>Kolla base distro (images)</label><select name="base_distro"><option value="ubuntu">Ubuntu</option><option value="rocky">Rocky</option></select></div>
-          <div class="f"><label>Mode</label><select name="mode"><option value="offline">Offline (master registry + repositories)</option><option value="online">Online (quay.io + Ubuntu archive)</option></select></div></div>
+          <div class="f"><label>Mode</label><select name="mode"><option value="offline">Offline (master registry + repositories)</option><option value="online">Online (quay.io upstream TEST images + Ubuntu archive)</option></select></div></div>
         <div id="ow-kolla"></div>
       </form>
       <form class="pane" data-step="nodes"><div class="utabs" data-tabs="on" data-hash="no"><button data-t="ctl" type="button">Controller Node</button><button data-t="cmp" type="button">Compute Nodes</button><button data-t="sto" type="button">Storage Nodes</button><button data-t="net" type="button">Network Nodes</button></div>

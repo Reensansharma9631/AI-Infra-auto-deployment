@@ -371,7 +371,10 @@ def deploy():
     actions = [("bootstrap-servers", "Bootstrap servers (docker, users, kernel settings)"), ("prechecks", "Kolla pre-checks"),
                ("pull", "Pull images from the master registry"), ("deploy", "Deploy OpenStack services"),
                ("post-deploy", "Post-deploy (admin-openrc.sh / clouds.yaml)")]
-    steps = [{"name": label, "cmd": [kb, act] + base, "env": env, "cwd": d} for act, label in actions]
+    # online: Kolla marks quay.io/openstack.kolla as TEST images and refuses them in prechecks without this flag (the only
+    # action that takes it - kolla-ansible 22, real lab). Production images = your own build/registry = the offline mode.
+    test_images = ["--use-test-images"] if s["requirements"].get("mode", "offline") == "online" and not s["network"].get("registry") else []
+    steps = [{"name": label, "cmd": [kb, act] + base + (test_images if act == "prechecks" else []), "env": env, "cwd": d} for act, label in actions]
     # before Kolla: master repositories + NTP + base packages (01-common) and the OpenStack host prep (external interface,
     # host services that would clash with Kolla's containers) - then per-host interface detection
     hosts = [dict(h, roles="") for h in os_hosts(s)]

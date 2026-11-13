@@ -572,6 +572,13 @@ def test_online_mode_uses_quay_and_keeps_internet_sources(app, operator, oslab, 
     wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
     common = next(c for c in ansible_calls(app) if c["playbook"] == "01-common.yml")
     assert common["vars"]["airgap_online"] is True
+    from autoinfra import openstack
+    with app.app_context():
+        d = openstack.config_dir()
+    calls = [json.loads(l) for l in open(os.path.join(d, "kolla-calls.log"))]
+    pre = next(c for c in calls if c["action"] == "prechecks")
+    assert "--use-test-images" in pre["args"]                                    # Kolla 22 refuses quay.io images otherwise
+    assert all("--use-test-images" not in c["args"] for c in calls if c["action"] != "prechecks")
 
 
 def test_offline_mode_default(operator, oslab):
