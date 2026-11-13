@@ -62,8 +62,8 @@
       changed_when: "'removed' in os_px.stdout"
       when: not (os_proxysql_enabled | default(true) | bool)
 
-- name: External (provider) interface on the network nodes
-  hosts: os_network
+- name: External (provider) interface - on every node (OVN attaches the external bridge on the computes too)
+  hosts: os_nodes
   become: true
   gather_facts: false
   tasks:

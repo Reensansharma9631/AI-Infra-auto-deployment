@@ -352,3 +352,23 @@ def test_repo_lists_only_existing(app, operator, tmp_path):
         os.makedirs(os.path.join(root, "custom", "rpm", "repodata"))
         open(os.path.join(root, "custom", "rpm", "repodata", "repomd.xml"), "w").close()
         assert inventory.repo_lists() == {"airgap_deb_repos": ["kvm"], "airgap_rpm_repos": ["custom"]}
+
+
+
+@pytest.mark.parametrize("raw,leaked", [
+    ("cell_database': 'mysql+pymysql://nova:Zf9DObWwCy7gev@172.27.15.239:3306/nova_cell0'", "Zf9DObWwCy7gev"),
+    ("amqp://openstack:S3cretRabbit99@10.0.0.11:5672//", "S3cretRabbit99"),
+    ("keystone_admin_password: Qwerty1234567890", "Qwerty1234567890"),
+    ('{"password": "hunter2hunter2"}', "hunter2hunter2"),
+])
+def test_redact_catches_unknown_secrets(raw, leaked):
+    """Real lab: a Kolla deprecation warning printed the nova DB URL with its password into the job log."""
+    from autoinfra import jobs
+    out = jobs.redact(raw)
+    assert leaked not in out and "********" in out
+
+
+def test_redact_keeps_normal_text():
+    from autoinfra import jobs
+    for t in ("TASK [nova : Copy over config] ****", "http://172.27.15.238:8081/repo/core/deb ./", "ok: [kvm-01] => (item=nova)"):
+        assert jobs.redact(t) == t

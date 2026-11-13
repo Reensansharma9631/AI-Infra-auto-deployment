@@ -28,11 +28,17 @@ def job_dir(jid):
     return d
 
 
+_URL_CRED = __import__("re").compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@'\"]+:)([^\s@/'\"]+)(@)", __import__("re").I)
+_KV_SECRET = __import__("re").compile(r"((?:password|passwd|secret|token|api_key|apikey)['\"]?\s*[:=]\s*['\"]?)([^\s'\",}]{4,})", __import__("re").I)
+
+
 def redact(text, secrets=()):
-    for s in secrets:
-        if s and len(str(s)) >= 4:
-            text = text.replace(str(s), "********")
-    return text
+    """Known secrets, plus anything that looks like one: credentials inside URLs (mysql+pymysql://user:PASS@host - a Kolla
+    warning printed one on the real lab) and password=/token: values."""
+    for s in sorted((str(x) for x in secrets if x and len(str(x)) >= 4), key=len, reverse=True):
+        text = text.replace(s, "********")
+    text = _URL_CRED.sub(r"\1********\3", text)
+    return _KV_SECRET.sub(r"\1********", text)
 
 
 def running(kind):

@@ -391,9 +391,27 @@ def deploy():
                   if s["network"]["network_interface"] == "auto" else [])
     steps = pre + steps
     steps.append({"name": "Validate (service endpoints)", "fn": "os_validate", "args": {"config_dir": d}})
-    jid = jobs.start("deploy-openstack", f"Deploy OpenStack {s['requirements']['release']}", steps, meta={"config_dir": d})
+    jid = jobs.start("deploy-openstack", f"Deploy OpenStack {s['requirements']['release']}", steps, meta={"config_dir": d},
+                     secrets=kolla_secrets(d))
     auth.audit("os.deploy", s["requirements"]["release"], f"job {jid}")
     return jsonify(job_id=jid), 202
+
+
+def kolla_secrets(d):
+    """Every value of passwords.yml (incl. private keys) - kept out of the job log."""
+    import yaml
+    try:
+        data = yaml.safe_load(open(os.path.join(d, "passwords.yml"))) or {}
+    except (OSError, ValueError):
+        return []
+    out = []
+    for v in data.values():
+        if isinstance(v, dict):
+            out += [str(x) for x in v.values() if x]
+            out += [l for x in v.values() if x for l in str(x).splitlines() if len(l) >= 16]
+        elif v not in (None, ""):
+            out.append(str(v))
+    return out
 
 
 def os_hosts(s):
