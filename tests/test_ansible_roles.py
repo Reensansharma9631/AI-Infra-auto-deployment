@@ -806,3 +806,12 @@ def test_openstack_prep_process_patterns_cannot_match_themselves():
     text = (ANS / "50-openstack-prep.yml").read_text()
     for m in re.finditer(r"p(?:grep|kill)[^'\n]*-f '([^']+)'", text):
         assert m.group(1).startswith("[q]emu"), m.group(0)
+
+
+
+def test_openstack_prep_frees_every_libvirt_socket():
+    """Kolla bind-mounts /run/libvirt: any host libvirt daemon left there is used by the containerized libvirtd."""
+    pb = yaml.safe_load((ANS / "50-openstack-prep.yml").read_text())
+    svc = pb[0]["vars"]["os_clash_services"]
+    for d in ("libvirtd", "virtlogd", "virtlockd", "virtqemud"):
+        assert d in svc and f"{d}.socket" in svc, d

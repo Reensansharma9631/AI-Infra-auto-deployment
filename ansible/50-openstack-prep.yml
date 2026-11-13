@@ -9,8 +9,12 @@
   become: true
   gather_facts: true
   vars:
+    # virtlogd/virtlockd too: their sockets live in /run/libvirt, which Kolla bind-mounts into nova_libvirt - the containerized
+    # libvirtd then used the HOST virtlogd, which cannot see the container's /var/lib/nova (real lab: 'Unable to open file:
+    # /var/lib/nova/instances/<uuid>/console.log: No such file or directory', every VM build failed)
     os_clash_services: [cloudstack-agent, cloudstack-management, cloudstack-usage, mysql, mysqld, libvirtd, libvirtd.socket,
-                        libvirtd-ro.socket, libvirtd-admin.socket, libvirtd-tcp.socket, libvirtd-tls.socket, virtqemud, virtqemud.socket]
+                        libvirtd-ro.socket, libvirtd-admin.socket, libvirtd-tcp.socket, libvirtd-tls.socket, virtqemud, virtqemud.socket,
+                        virtlogd, virtlogd.socket, virtlogd-admin.socket, virtlockd, virtlockd.socket, virtlockd-admin.socket]
   tasks:
     - name: Which clashing host services exist and run
       ansible.builtin.shell: |
