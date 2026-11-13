@@ -129,6 +129,9 @@ def main():
         print("      deploying the test VM (the virtual router starts first - a few minutes)")
         vm = cs.run("deployVirtualMachine", zoneid=zid, templateid=t["id"], serviceofferingid=off["id"], networkids=net["id"], name=NAME,
                     displayname=NAME)["virtualmachine"]
+    if vm.get("state") == "Stopped":     # e.g. after the hosts were lent to OpenStack - start it like an operator would
+        print("      test VM was Stopped - starting it")
+        cs.run("startVirtualMachine", id=vm["id"])
     vm = wait("vm", lambda: (lambda v: v if v and v.get("state") == "Running" else None)(
         cs.find("listVirtualMachines", "virtualmachine", id=vm["id"], listall="true")), 900, 10)
     ip = (vm or {}).get("nic", [{}])[0].get("ipaddress")
