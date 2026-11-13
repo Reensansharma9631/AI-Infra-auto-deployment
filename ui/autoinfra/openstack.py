@@ -442,7 +442,10 @@ def destroy():
     if not os.path.exists(os.path.join(d, "multinode")):
         return jsonify(error="nothing deployed from this master (no inventory)"), 409
     kb, base, env = kolla_cmd(d)
-    steps = [{"name": "Destroy OpenStack (kolla-ansible destroy)", "cmd": [kb, "destroy"] + base + ["--yes-i-really-really-mean-it"], "env": env,
+    # the nodes only: destroy also checks that the user can run the container engine on localhost - the master runs none
+    # (real lab: "User autoinfra can't seem to run Podman commands")
+    steps = [{"name": "Destroy OpenStack (kolla-ansible destroy)", "cmd": [kb, "destroy"] + base + ["--limit", "all:!localhost",
+              "--yes-i-really-really-mean-it"], "env": env,
               "cwd": d},
              {"name": "Forget the service passwords (new ones at the next deployment)", "fn": "os_forget_passwords", "args": {"config_dir": d}}]
     jid = jobs.start("destroy-openstack", "Remove the OpenStack deployment", steps, meta={"config_dir": d}, secrets=kolla_secrets(d))

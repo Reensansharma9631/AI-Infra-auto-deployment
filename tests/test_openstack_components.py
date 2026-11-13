@@ -526,7 +526,12 @@ def test_destroy_needs_confirmation_admin_and_a_deployment(app, operator, admin,
     r = admin.post("/api/os/destroy", json={"confirm": "destroy"})
     assert r.status_code == 202, r.get_json()
     jd = wait_job(admin, r.get_json()["job_id"])
-    assert jd["state"] == "success" and [s["name"] for s in jd["steps"]][0] == "Destroy OpenStack (kolla-ansible destroy)"
     from autoinfra import openstack
+    assert jd["state"] == "success" and [s["name"] for s in jd["steps"]][0] == "Destroy OpenStack (kolla-ansible destroy)"
+    with app.app_context():
+        d = openstack.config_dir()
+    calls = [json.loads(l) for l in open(os.path.join(d, "kolla-calls.log"))]
+    destroy = next(c for c in calls if c["action"] == "destroy")
+    assert destroy["args"][destroy["args"].index("--limit") + 1] == "all:!localhost"     # the master runs no container engine
     with app.app_context():
         assert not os.path.exists(os.path.join(openstack.config_dir(), "passwords.yml"))
