@@ -536,3 +536,14 @@ def test_destroy_needs_confirmation_admin_and_a_deployment(app, operator, admin,
     assert destroy["args"][destroy["args"].index("--limit") + 1] == "all:!localhost"     # the master runs no container engine
     with app.app_context():
         assert not os.path.exists(os.path.join(openstack.config_dir(), "passwords.yml"))
+
+
+
+def test_destroy_twice_in_a_row(app, operator, admin, oslab, monkeypatch):
+    monkeypatch.setenv("AUTOINFRA_KOLLA_SHARE", str(FAKES / "kolla-share"))
+    os_fill(operator, oslab)
+    wait_job(operator, operator.post("/api/os/deploy", json={}).get_json()["job_id"])
+    for _ in range(2):
+        r = admin.post("/api/os/destroy", json={"confirm": "destroy"})
+        assert r.status_code == 202, r.get_json()
+        assert wait_job(admin, r.get_json()["job_id"])["state"] == "success"

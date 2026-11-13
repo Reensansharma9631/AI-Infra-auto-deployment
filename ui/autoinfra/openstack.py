@@ -441,6 +441,9 @@ def destroy():
     d = config_dir()
     if not os.path.exists(os.path.join(d, "multinode")):
         return jsonify(error="nothing deployed from this master (no inventory)"), 409
+    if not os.path.exists(os.path.join(d, "passwords.yml")):
+        # destroy reads passwords.yml even though it removes everything (real lab: a second removal failed without it)
+        write_config(state())
     kb, base, env = kolla_cmd(d)
     # the nodes only: destroy also checks that the user can run the container engine on localhost - the master runs none
     # (real lab: "User autoinfra can't seem to run Podman commands")
