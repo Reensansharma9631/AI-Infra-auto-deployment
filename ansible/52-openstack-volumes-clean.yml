@@ -1,0 +1,18 @@
+---
+# After 'kolla-ansible destroy': remove every volume Kolla created (label kolla_managed=true) - destroy skips volumes of
+# services the current configuration disables (real lab: proxysql, proxysql_socket, nova-cell were left). Nothing else.
+- name: Remove leftover Kolla volumes
+  hosts: os_nodes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Kolla-managed volumes
+      ansible.builtin.shell: |
+        for e in podman docker; do
+          command -v $e >/dev/null 2>&1 || continue
+          for v in $($e volume ls -q --filter label=kolla_managed=true 2>/dev/null); do
+            $e volume rm -f "$v" >/dev/null && echo "removed $e volume $v"
+          done
+        done; true
+      register: os_vols
+      changed_when: "'removed' in os_vols.stdout"

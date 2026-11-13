@@ -448,6 +448,11 @@ def destroy():
               "--yes-i-really-really-mean-it"], "env": env,
               "cwd": d},
              {"name": "Forget the service passwords (new ones at the next deployment)", "fn": "os_forget_passwords", "args": {"config_dir": d}}]
+    s = state()
+    hosts = [dict(h, roles="") for h in os_hosts(s)]
+    clean, _ = inventory.playbook_steps([("52-openstack-volumes-clean.yml", "Remove leftover Kolla volumes")], hosts,
+                                        extra_groups={"os_nodes": [h["id"] for h in hosts]})
+    steps[1:1] = clean
     jid = jobs.start("destroy-openstack", "Remove the OpenStack deployment", steps, meta={"config_dir": d}, secrets=kolla_secrets(d))
     auth.audit("os.destroy", "", f"job {jid}")
     return jsonify(job_id=jid), 202

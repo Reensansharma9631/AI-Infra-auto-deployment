@@ -527,7 +527,8 @@ def test_destroy_needs_confirmation_admin_and_a_deployment(app, operator, admin,
     assert r.status_code == 202, r.get_json()
     jd = wait_job(admin, r.get_json()["job_id"])
     from autoinfra import openstack
-    assert jd["state"] == "success" and [s["name"] for s in jd["steps"]][0] == "Destroy OpenStack (kolla-ansible destroy)"
+    assert jd["state"] == "success" and [s["name"] for s in jd["steps"]][:2] == ["Destroy OpenStack (kolla-ansible destroy)",
+                                                                                 "Remove leftover Kolla volumes"]
     with app.app_context():
         d = openstack.config_dir()
     calls = [json.loads(l) for l in open(os.path.join(d, "kolla-calls.log"))]
