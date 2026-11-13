@@ -824,6 +824,7 @@ def test_openstack_prep_removes_unowned_libvirt_sockets():
     task = next(t for t in pb[0]["tasks"] if t["name"].startswith("Stale host libvirt sockets"))
     sh = task["ansible.builtin.shell"]
     assert "/run/libvirt/virtlogd-sock" in sh and "ss -xlp" in sh and "restart nova_libvirt" in sh
+    assert "/run/libvirt/libvirt-sock " in sh and "/run/libvirt/libvirt-admin-sock" in sh       # Kolla checks this file
 
 
 def test_openstack_release_order_and_verification():

@@ -36,11 +36,13 @@
       when: (os_stop_host_libvirt | default(true) | bool) and (autoinfra_services | default(true) | bool)
 
     - name: Stale host libvirt sockets in /run/libvirt (shared with Kolla's nova_libvirt) - nobody may own them
+      # also libvirtd's own: Kolla's precheck 'host libvirt is not running' only checks that libvirt-sock exists (real lab,
+      # after the hosts went back to CloudStack and then to OpenStack again)
       # a socket file left by the stopped host virtlogd made Kolla's libvirtd try it ('Connection refused') and its own
       # virtlogd die (real lab: defunct virtlogd, every VM build failed)
       ansible.builtin.shell: |
         removed=0
-        for s in /run/libvirt/virtlogd-sock /run/libvirt/virtlogd-admin-sock /run/libvirt/virtlockd-sock /run/libvirt/virtlockd-admin-sock; do
+        for s in /run/libvirt/libvirt-sock /run/libvirt/libvirt-sock-ro /run/libvirt/libvirt-admin-sock /run/libvirt/virtlogd-sock /run/libvirt/virtlogd-admin-sock /run/libvirt/virtlockd-sock /run/libvirt/virtlockd-admin-sock; do
           [ -S "$s" ] || continue
           if ! ss -xlp 2>/dev/null | grep -qF "$s "; then rm -f "$s" && removed=1 && echo "removed $s"; fi
         done
