@@ -51,6 +51,13 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - **No Docker on the master**; OpenStack bundle built without Docker (skopeo, OCI layout); registry loaded 42/42 Kolla images.
 - **Time**: the master serves NTP (fixed: chrony restart); all three nodes synchronized to it, air-gapped.
 
+- **OpenStack 2026.1 - Kolla on Podman, no Docker anywhere** - deployed from the browser (job 53), nodes air-gapped, single
+  controller without a VIP (.239), computes kvm-01 + nfs-01, OVN: **OpenStack smoke test PASS 7/7** (Keystone, both computes up,
+  6 agents, image uploaded from the master's repo, VM ACTIVE 192.168.77.152 via OVN DHCP + metadata, ping + SSH banner).
+  "Remove OpenStack deployment" (0 containers / 0 volumes left) and "Release hosts" tested from the browser.
+- **CloudStack and OpenStack taking turns on the same 4 VMs**: after OpenStack was released, CloudStack recovered (routes,
+  system VMs, router, test VM) - **CloudStack smoke test 10/10** (job 56).
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -62,6 +69,8 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
 - The Components page "Management Server" card alone (FIXES #13, known broken).
 - Usage server, SSL (nginx) in front of the management UI, Zabbix monitoring on CloudStack.
-- OpenStack, OpenShift, Ollama with models, HA on real machines, RHEL-family nodes on real machines.
+- OpenStack online mode, OpenStack from native packages, 3-controller OpenStack HA with an internal VIP.
+- OpenShift/OKD, Ollama with models, Rancher/Harbor/Keycloak/Argo CD/OpenClaw/GitLab/Zabbix+MySQL/Metabase, the version matrix,
+  the database-layout option, HA on real machines, RHEL-family nodes on real machines, the one combined zip.
 - Lab caveat: all three node VMs share one /etc/machine-id (cloned). The automation no longer depends on it (explicit MACs),
   and the pre-deployment check now warns; regenerating it on each node is recommended (needs a reboot - not done).
