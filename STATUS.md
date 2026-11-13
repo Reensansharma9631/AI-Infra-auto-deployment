@@ -58,6 +58,9 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - **CloudStack and OpenStack taking turns on the same 4 VMs**: after OpenStack was released, CloudStack recovered (routes,
   system VMs, router, test VM) - **CloudStack smoke test 10/10** (job 56).
 
+- **OpenStack 2026.1 online mode** (Kolla on Podman, images from quay.io, packages from the Ubuntu archive, master DNS
+  forwarding): deployed from the browser (job 60), **smoke test PASS 8/8**, Horizon login as admin in Chromium works.
+
 ## VERIFIED BY TESTS ONLY (simulators, rendered configs, network namespaces - not on the lab)
 - MySQL HA (GTID + auto-heal, PXC), management VIP with HAProxy + keepalived (configs validated with `keepalived -t`/`haproxy -c`).
 - RHEL / Rocky / Alma 9 nodes (vars + rendered templates for the RedHat family; the NetworkManager bridge path vs a stand-in nmcli).
@@ -69,7 +72,7 @@ Layout deployed through the UI API (the same calls the wizard makes):
 - **The one-zip installer** (does not exist yet) and a **clean rebuild from it** (Phase 5).
 - The Components page "Management Server" card alone (FIXES #13, known broken).
 - Usage server, SSL (nginx) in front of the management UI, Zabbix monitoring on CloudStack.
-- OpenStack online mode, OpenStack from native packages, 3-controller OpenStack HA with an internal VIP.
+- OpenStack from native packages, 3-controller OpenStack HA with an internal VIP.
 - OpenShift/OKD, Ollama with models, Rancher/Harbor/Keycloak/Argo CD/OpenClaw/GitLab/Zabbix+MySQL/Metabase, the version matrix,
   the database-layout option, HA on real machines, RHEL-family nodes on real machines, the one combined zip.
 - Lab caveat: all three node VMs share one /etc/machine-id (cloned). The automation no longer depends on it (explicit MACs),
