@@ -811,3 +811,12 @@ def test_second_cloudstack_deployment_refused_while_one_runs(app, operator, lab)
         jid = db.ex("INSERT INTO jobs(kind,title,state,created,by_user,meta,steps) VALUES('deploy-cloudstack','x','queued',0,'t','{}','[]')")
     r = operator.post("/api/cs/wizard/deploy", json={"force": True})
     assert r.status_code == 409 and f"job #{jid}" in r.get_json()["error"]
+
+
+
+def test_cloudstack_owns_the_routes_openstack_does_not(app, operator, lab):
+    """Real lab: OpenStack's 01-common run (no route list) removed CloudStack's routes."""
+    fill(operator, lab, **_single(lab))
+    from autoinfra import cloudstack, openstack
+    with app.app_context():
+        assert cloudstack.extra_vars(cloudstack.state())["autoinfra_routes_owner"] == "cloudstack"

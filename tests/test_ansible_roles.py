@@ -646,7 +646,8 @@ def test_routes_unit_skips_hosts_in_except():
 
 def test_common_removes_route_unit_when_no_route_applies():
     tasks = {t["name"]: t for t in yaml.safe_load((ANS / "roles/common/tasks/main.yml").read_text())}
-    assert "routes_remove.yml" in str(tasks["No routes for this host any more - remove an earlier route unit (and its routes)"])
+    rm_task = tasks["No routes for this host any more - remove an earlier route unit (and its routes)"]
+    assert "routes_remove.yml" in str(rm_task) and "autoinfra_routes_owner" in rm_task["when"]   # other products never remove them
     rm = yaml.safe_load((ANS / "roles/common/tasks/routes_remove.yml").read_text())
     assert "autoinfra-routes.service" in str(rm) and "absent" in str(rm)
 

@@ -106,7 +106,9 @@
   when: common_my_routes | length > 0
   tags: routes
 
+# only the product that owns the routes may remove them: another product's 01-common run (e.g. OpenStack) passes no route
+# list and must leave CloudStack's routes alone (real lab: deploying OpenStack removed them, system VMs lost the mgmt server)
 - name: No routes for this host any more - remove an earlier route unit (and its routes)
   ansible.builtin.include_tasks: routes_remove.yml
-  when: common_my_routes | length == 0
+  when: common_my_routes | length == 0 and (autoinfra_routes_owner | default('')) | length > 0
   tags: routes

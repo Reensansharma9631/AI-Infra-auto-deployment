@@ -112,6 +112,24 @@ def openstack_release(page, plan=None, force=False):
     return page.locator("#ow-jt").inner_text().strip().lstrip("job #")
 
 
+def cloudstack_deploy(page, plan=None, force=False):
+    """The wizard is already filled (state on the server): Review step -> admin password -> Start CloudStack Deployment."""
+    page.goto(f"{URL}/cloudstack/wizard#review")
+    page.wait_for_load_state("networkidle")
+    page.locator("#rv-deploy").wait_for(state="visible", timeout=20000)
+    if os.environ.get("CS_ADMIN_PASSWORD"):
+        page.fill("#rv-admin", os.environ["CS_ADMIN_PASSWORD"])
+    shot(page, "cloudstack-review")
+    page.click("#rv-deploy")
+    page.locator("#rv-job:not([hidden]), #rv-errors .note").first.wait_for(timeout=30000)
+    err = page.locator("#rv-errors").inner_text().strip()
+    if err:
+        shot(page, "cloudstack-deploy-ERROR")
+        raise SystemExit(f"deploy refused: {err}")
+    shot(page, "cloudstack-deploy-started")
+    return page.locator("#rv-jt").inner_text().strip().lstrip("job #")
+
+
 if __name__ == "__main__":
     what, plan_file = sys.argv[1], sys.argv[2]
     plan = json.load(open(plan_file))
@@ -121,7 +139,7 @@ if __name__ == "__main__":
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         login(page)
-        jid = {"openstack": openstack, "openstack-destroy": openstack_destroy, "openstack-release": openstack_release}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
+        jid = {"openstack": openstack, "openstack-destroy": openstack_destroy, "openstack-release": openstack_release, "cloudstack": cloudstack_deploy}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
         b.close()
     if errors:
         print("JavaScript errors:", errors)

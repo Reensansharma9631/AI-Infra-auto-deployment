@@ -421,6 +421,8 @@ def test_deploy_runs_prep_before_kolla(app, operator, oslab, monkeypatch):
     prep = next(c for c in calls if c["playbook"] == "50-openstack-prep.yml")
     assert prep["vars"]["os_external_interface"] == "eth1" and prep["vars"]["os_stop_host_libvirt"] is True
     assert prep["vars"]["os_proxysql_enabled"] is True
+    common = next(c for c in calls if c["playbook"] == "01-common.yml")
+    assert "autoinfra_routes_owner" not in common["vars"]          # OpenStack must not remove CloudStack's routes
     assert "[os_nodes]" in prep["inventory"] and "[os_network]\nctl1" in prep["inventory"]
 
 

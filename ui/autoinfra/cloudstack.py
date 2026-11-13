@@ -290,7 +290,8 @@ def extra_vars(s):
         "kvm_manage_network": bool(s["cluster"].get("auto_bridge", True)),
         "kvm_required_bridges": sorted({z.get(k) for k in ("label_mgmt", "label_guest", "label_public") if z.get(k)}),
         "nginx_hosts": "cs_mgmt", "zabbix_agent_hosts": "all", "cs_usage_hosts": "cs_mgmt[0]",
-        "cs_host_setting": f"{mgmt_host_setting(s)}|cpvm={console_proxies(s)}",   # the restart playbook restarts when this changes
+        "cs_host_setting": f"{mgmt_host_setting(s)}|cpvm={console_proxies(s)}",
+        "autoinfra_routes_owner": "cloudstack",      # common may add AND remove the static routes only for the owner's runs   # the restart playbook restarts when this changes
     }
     ev.update(internal_net_vars(s, hosts))
     return ev
