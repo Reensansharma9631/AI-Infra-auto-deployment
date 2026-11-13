@@ -815,3 +815,11 @@ def test_openstack_prep_frees_every_libvirt_socket():
     svc = pb[0]["vars"]["os_clash_services"]
     for d in ("libvirtd", "virtlogd", "virtlockd", "virtqemud"):
         assert d in svc and f"{d}.socket" in svc, d
+
+
+
+def test_openstack_prep_removes_unowned_libvirt_sockets():
+    pb = yaml.safe_load((ANS / "50-openstack-prep.yml").read_text())
+    task = next(t for t in pb[0]["tasks"] if t["name"].startswith("Stale host libvirt sockets"))
+    sh = task["ansible.builtin.shell"]
+    assert "/run/libvirt/virtlogd-sock" in sh and "ss -xlp" in sh and "restart nova_libvirt" in sh

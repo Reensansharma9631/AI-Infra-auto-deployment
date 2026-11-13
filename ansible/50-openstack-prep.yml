@@ -35,6 +35,22 @@
       loop: "{{ os_clash.stdout_lines | default([]) }}"
       when: (os_stop_host_libvirt | default(true) | bool) and (autoinfra_services | default(true) | bool)
 
+    - name: Stale host libvirt sockets in /run/libvirt (shared with Kolla's nova_libvirt) - nobody may own them
+      # a socket file left by the stopped host virtlogd made Kolla's libvirtd try it ('Connection refused') and its own
+      # virtlogd die (real lab: defunct virtlogd, every VM build failed)
+      ansible.builtin.shell: |
+        removed=0
+        for s in /run/libvirt/virtlogd-sock /run/libvirt/virtlogd-admin-sock /run/libvirt/virtlockd-sock /run/libvirt/virtlockd-admin-sock; do
+          [ -S "$s" ] || continue
+          if ! ss -xlp 2>/dev/null | grep -qF "$s "; then rm -f "$s" && removed=1 && echo "removed $s"; fi
+        done
+        if [ "$removed" = 1 ]; then
+          for e in podman docker; do command -v $e >/dev/null 2>&1 && $e inspect nova_libvirt >/dev/null 2>&1 && $e restart nova_libvirt >/dev/null && echo "restarted nova_libvirt"; done
+        fi; true
+      register: os_socks
+      changed_when: "'removed' in os_socks.stdout"
+      when: os_stop_host_libvirt | default(true) | bool
+
     - name: VMs left running under the host libvirt would keep their qemu processes - none may remain
       # '[q]emu': the pattern must not match this shell's own command line (real lab: pkill killed itself)
       ansible.builtin.shell: pgrep -c -f '[q]emu-system-x86_64.*guest=' || true
