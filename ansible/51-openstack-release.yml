@@ -1,17 +1,17 @@
 ---
 # Give the hosts back after an OpenStack test on shared machines: stop Kolla's containers, then unmask and start the host
-# services 50-openstack-prep.yml stopped (CloudStack agent/management, MySQL, libvirtd). Kolla data stays on disk, so
-# OpenStack can be started again later (kolla-ansible deploy). Safe to re-run.
+# services 50-openstack-prep.yml stopped (CloudStack agent/management, MySQL, libvirt daemons) - in dependency order, and
+# verify they run. Kolla data stays on disk, so OpenStack can be started again later. Safe to re-run.
 - name: Release the hosts from OpenStack
   hosts: os_nodes
   become: true
   gather_facts: false
   tasks:
-    - name: Stop Kolla containers (podman or docker, whichever runs them)
+    - name: Stop every Kolla container (image from openstack.kolla - also sidecars without the kolla label)
       ansible.builtin.shell: |
         for e in podman docker; do
           command -v $e >/dev/null 2>&1 || continue
-          ids=$($e ps -q --filter label=kolla_version 2>/dev/null)
+          ids=$($e ps --format '{{ "{{" }}.ID{{ "}}" }} {{ "{{" }}.Image{{ "}}" }}' 2>/dev/null | awk '$2 ~ /openstack\.kolla\// {print $1}')
           [ -n "$ids" ] && $e stop -t 30 $ids >/dev/null && echo "stopped $(echo $ids | wc -w) $e container(s)"
         done; true
       register: os_stop
@@ -30,11 +30,38 @@
       register: os_stopped
       failed_when: false
 
-    - name: Unmask and start them again
-      ansible.builtin.systemd: {name: "{{ item }}", masked: false, enabled: true, state: started}
-      loop: "{{ (os_stopped.content | default('') | b64decode).split() | unique }}"
-      when: autoinfra_services | default(true) | bool
-      failed_when: false
+    - name: The list
+      ansible.builtin.set_fact:
+        os_svc: "{{ (os_stopped.content | default('') | b64decode).split() | unique }}"
 
-    - name: Forget the list
+    - name: Sockets left by Kolla's libvirt in /run/libvirt (nobody owns them once its containers stopped)
+      ansible.builtin.shell: |
+        for s in /run/libvirt/virtlogd-sock /run/libvirt/virtlogd-admin-sock /run/libvirt/virtlockd-sock /run/libvirt/virtlockd-admin-sock; do
+          [ -S "$s" ] && ! ss -xlp 2>/dev/null | grep -qF "$s " && rm -f "$s" && echo "removed $s"
+        done; true
+      register: os_rs
+      changed_when: "'removed' in os_rs.stdout"
+
+    - name: Unmask all of them first (libvirtd requires virtlogd.socket - a masked dependency makes its start fail)
+      ansible.builtin.systemd: {name: "{{ item }}", masked: false, daemon_reload: true}
+      loop: "{{ os_svc }}"
+      when: autoinfra_services | default(true) | bool
+
+    - name: Start in dependency order - sockets, then daemons, then the CloudStack services
+      ansible.builtin.systemd: {name: "{{ item }}", enabled: true, state: started}
+      loop: >-
+        {{ (os_svc | select('match', '.*\.socket$') | list)
+           + (os_svc | reject('match', '.*\.socket$') | reject('match', '^cloudstack-') | list)
+           + (os_svc | select('match', '^cloudstack-') | list) }}
+      when: autoinfra_services | default(true) | bool
+
+    - name: Every recorded service must run again
+      ansible.builtin.command: "systemctl is-active {{ item }}"
+      loop: "{{ os_svc | reject('match', '.*\\.socket$') | list }}"
+      register: os_active
+      changed_when: false
+      failed_when: os_active.stdout | trim not in ['active', 'activating']
+      when: autoinfra_services | default(true) | bool
+
+    - name: Forget the list (only after everything runs)
       ansible.builtin.file: {path: /var/lib/autoinfra/os-stopped-services, state: absent}

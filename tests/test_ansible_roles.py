@@ -823,3 +823,15 @@ def test_openstack_prep_removes_unowned_libvirt_sockets():
     task = next(t for t in pb[0]["tasks"] if t["name"].startswith("Stale host libvirt sockets"))
     sh = task["ansible.builtin.shell"]
     assert "/run/libvirt/virtlogd-sock" in sh and "ss -xlp" in sh and "restart nova_libvirt" in sh
+
+
+def test_openstack_release_order_and_verification():
+    """Real lab: the release started libvirtd while virtlogd.socket was still masked (error swallowed), then forgot the list."""
+    tasks = {t["name"]: t for t in yaml.safe_load((ANS / "51-openstack-release.yml").read_text())[0]["tasks"]}
+    names = list(tasks)
+    assert names.index("Unmask all of them first (libvirtd requires virtlogd.socket - a masked dependency makes its start fail)") < \
+        names.index("Start in dependency order - sockets, then daemons, then the CloudStack services") < \
+        names.index("Every recorded service must run again") < names.index("Forget the list (only after everything runs)")
+    for n, t in tasks.items():     # no swallowed errors - except reading a list that may not exist (nothing to restore)
+        assert t.get("failed_when") is not False or n == "Services stopped by 50-openstack-prep.yml", n
+    assert "openstack\\.kolla" in tasks["Stop every Kolla container (image from openstack.kolla - also sidecars without the kolla label)"]["ansible.builtin.shell"]
