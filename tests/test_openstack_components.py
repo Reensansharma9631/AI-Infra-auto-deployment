@@ -547,3 +547,16 @@ def test_destroy_twice_in_a_row(app, operator, admin, oslab, monkeypatch):
         r = admin.post("/api/os/destroy", json={"confirm": "destroy"})
         assert r.status_code == 202, r.get_json()
         assert wait_job(admin, r.get_json()["job_id"])["state"] == "success"
+
+
+
+def test_release_hosts(app, operator, admin, oslab):
+    os_fill(operator, oslab)
+    assert operator.post("/api/os/release", json={"confirm": "release"}).status_code == 403
+    assert admin.post("/api/os/release", json={}).status_code == 400
+    r = admin.post("/api/os/release", json={"confirm": "release"})
+    assert r.status_code == 202, r.get_json()
+    j = wait_job(admin, r.get_json()["job_id"])
+    assert j["state"] == "success"
+    call = next(c for c in ansible_calls(app) if c["playbook"] == "51-openstack-release.yml")
+    assert "[os_nodes]" in call["inventory"] and "ctl1" in call["inventory"]

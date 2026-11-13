@@ -122,6 +122,12 @@ window.page_oswizard = async function () {
       watchJob(r.job_id, $("#ow-log"), (j) => toast(`OpenStack removal ${j.state}`, j.state === "success" ? "ok" : "bad"), (j) => ($("#ow-jsteps").innerHTML = stepsList(j.steps)));
     } catch (e) { toast(e.message, "bad"); }
   });
+  $("#ow-release").addEventListener("click", async () => {
+    if (prompt("OpenStack stops on these nodes and the host services it replaced start again. Type release to continue:") !== "release") return;
+    try { const r = await POST("/api/os/release", { confirm: "release" }); $("#ow-job").hidden = false; $("#ow-jt").textContent = `job #${r.job_id}`;
+      watchJob(r.job_id, $("#ow-log"), (j) => toast(`Release ${j.state}`, j.state === "success" ? "ok" : "bad"), (j) => ($("#ow-jsteps").innerHTML = stepsList(j.steps)));
+    } catch (e) { toast(e.message, "bad"); }
+  });
   $("#ow-regen").addEventListener("click", async () => { if (confirm("Only for a cloud that is NOT deployed yet. Continue?")) { const r = await POST("/api/os/passwords/regenerate"); toast(r.note, "ok"); } });
   await wz.start();
 };

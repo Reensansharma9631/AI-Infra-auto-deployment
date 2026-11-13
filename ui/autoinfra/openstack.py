@@ -461,6 +461,28 @@ def destroy():
     return jsonify(job_id=jid), 202
 
 
+@bp.route("/api/os/release", methods=["POST"])
+@auth.role_required("admin")
+def release():
+    """Give the machines back to what ran there before (e.g. CloudStack): stop Kolla's containers, unmask and start the host
+    services 50-openstack-prep.yml stopped. OpenStack's data stays; a later deployment starts it again."""
+    j = request.get_json(silent=True) or {}
+    if j.get("confirm") != "release":
+        return jsonify(error="send {\"confirm\": \"release\"} - OpenStack stops on these nodes"), 400
+    busy = jobs.running("deploy-openstack") or jobs.running("destroy-openstack") or jobs.running("release-openstack")
+    if busy:
+        return jsonify(error=f"job #{busy['id']} is running - wait for it or cancel it"), 409
+    s = state()
+    hosts = [dict(h, roles="") for h in os_hosts(s)]
+    if not hosts:
+        return jsonify(error="no OpenStack nodes in the wizard"), 409
+    steps, _ = inventory.playbook_steps([("51-openstack-release.yml", "Stop OpenStack and start the host services again")], hosts,
+                                        extra_groups={"os_nodes": [h["id"] for h in hosts]})
+    jid = jobs.start("release-openstack", "Release the hosts from OpenStack", steps)
+    auth.audit("os.release", "", f"job {jid}")
+    return jsonify(job_id=jid), 202
+
+
 @jobs.register("os_forget_passwords")
 def os_forget_passwords(log, config_dir):
     p = os.path.join(config_dir, "passwords.yml")

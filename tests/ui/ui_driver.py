@@ -100,6 +100,18 @@ def openstack_destroy(page, plan=None, force=False):
     return jid
 
 
+def openstack_release(page, plan=None, force=False):
+    page.goto(f"{URL}/openstack/wizard#deploy")
+    page.wait_for_load_state("networkidle")
+    page.once("dialog", lambda d: d.accept("release"))
+    btn = page.locator("#ow-release")
+    btn.scroll_into_view_if_needed()
+    btn.click()
+    page.locator("#ow-job:not([hidden])").wait_for(timeout=30000)
+    shot(page, "openstack-release-started")
+    return page.locator("#ow-jt").inner_text().strip().lstrip("job #")
+
+
 if __name__ == "__main__":
     what, plan_file = sys.argv[1], sys.argv[2]
     plan = json.load(open(plan_file))
@@ -109,7 +121,7 @@ if __name__ == "__main__":
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         login(page)
-        jid = {"openstack": openstack, "openstack-destroy": openstack_destroy}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
+        jid = {"openstack": openstack, "openstack-destroy": openstack_destroy, "openstack-release": openstack_release}[what](page, plan, force=bool(os.environ.get("AI_FORCE")))
         b.close()
     if errors:
         print("JavaScript errors:", errors)
